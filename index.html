@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>SwimVision · Guía de encuadre</title>
+<style>
+  :root{ --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --line:#38bdf8; --bg:#0a0e14; }
+  *{ box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  html,body{ height:100%; background:var(--bg); color:#fff;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; overflow:hidden; }
+  #app{ position:fixed; inset:0; }
+  video{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; background:#000; }
+  canvas{ position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+
+  #overlay{ position:absolute; inset:0; pointer-events:none; }
+  .shade{ position:absolute; left:0; right:0; background:rgba(0,0,0,.5); transition:background .2s; }
+  #shadeTop{ top:0; height:34%; } #shadeBot{ bottom:0; height:34%; }
+  .edge{ position:absolute; left:0; right:0; height:0; border-top:2px dashed var(--line); }
+  #edgeTop{ top:34%; } #edgeBot{ top:66%; }
+  .vmark{ position:absolute; top:34%; height:32%; width:0; border-left:2px solid rgba(255,255,255,.6); }
+  #vLeft{ left:18%; } #vRight{ left:82%; }
+
+  #status{ position:absolute; top:calc(env(safe-area-inset-top,0px) + 12px); left:50%;
+    transform:translateX(-50%); display:flex; align-items:center; gap:10px;
+    background:rgba(0,0,0,.55); padding:9px 16px; border-radius:999px; font-size:14px; font-weight:700;
+    white-space:nowrap; }
+  #statusDot{ width:13px; height:13px; border-radius:50%; background:var(--warn); flex:none; transition:background .15s; }
+
+  #instr{ position:absolute; left:12px; right:12px; top:60px; text-align:center;
+    font-size:15px; font-weight:700; text-shadow:0 1px 4px rgba(0,0,0,.8); }
+
+  #level{ position:absolute; top:calc(env(safe-area-inset-top,0px) + 12px); right:14px;
+    display:flex; align-items:center; gap:6px; background:rgba(0,0,0,.45); padding:6px 10px;
+    border-radius:999px; font-size:11px; font-weight:600; }
+  #levelDot{ width:9px; height:9px; border-radius:50%; background:var(--warn); }
+
+  #cues{ position:absolute; left:12px; right:12px;
+    bottom:calc(env(safe-area-inset-bottom,0px) + 96px);
+    display:flex; flex-direction:column; gap:6px; align-items:center; text-align:center; }
+  .cue{ background:rgba(0,0,0,.5); padding:6px 12px; border-radius:10px; font-size:12px; line-height:1.35; max-width:520px; }
+
+  #bar{ position:absolute; left:0; right:0; bottom:0;
+    padding:16px 16px calc(env(safe-area-inset-bottom,0px) + 16px);
+    display:flex; gap:12px; justify-content:center; align-items:center; }
+  button{ font:inherit; font-weight:700; color:#fff; border:none; border-radius:14px;
+    padding:14px 20px; background:rgba(255,255,255,.14); backdrop-filter:blur(8px); }
+  #recBtn{ background:#6b7280; opacity:.6; }
+  #recBtn.ready{ background:#dc2626; opacity:1; }
+  #recBtn.on{ background:#991b1b; animation:pulse 1s infinite; opacity:1; }
+  @keyframes pulse{ 50%{ opacity:.55; } }
+  #timer{ position:absolute; top:calc(env(safe-area-inset-top,0px) + 12px); right:120px;
+    background:rgba(220,38,38,.9); padding:5px 10px; border-radius:8px; font-size:13px;
+    font-weight:700; display:none; }
+
+  #start{ position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:18px; text-align:center; padding:24px;
+    background:linear-gradient(160deg,#0a0e14,#111827); z-index:5; }
+  #start h1{ font-size:22px; font-weight:800; }
+  #start p{ font-size:14px; color:#9ca3af; max-width:340px; line-height:1.5; }
+  #start button{ background:var(--line); color:#04121c; font-size:16px; padding:16px 28px; }
+  #err{ color:#f87171; font-size:13px; min-height:18px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <video id="v" playsinline autoplay muted></video>
+  <canvas id="c"></canvas>
+
+  <div id="overlay" hidden>
+    <div class="shade" id="shadeTop"></div>
+    <div class="shade" id="shadeBot"></div>
+    <div class="edge" id="edgeTop"></div>
+    <div class="edge" id="edgeBot"></div>
+    <div class="vmark" id="vLeft"></div>
+    <div class="vmark" id="vRight"></div>
+
+    <div id="status"><span id="statusDot"></span><span id="statusTxt">buscando nadador…</span></div>
+    <div id="instr"></div>
+    <div id="level"><span id="levelDot"></span><span id="levelTxt">nivel</span></div>
+    <div id="timer">● <span id="timerTxt">0.0s</span></div>
+
+    <div id="cues">
+      <div class="cue">📌 Móvil <b>fijo</b>, zoom <b>1x</b>, perpendicular al carril — ajusta con distancia, no con zoom</div>
+      <div class="cue">🧍 Que alguien haga un paso de prueba por la zona mientras ajustas</div>
+    </div>
+  </div>
+
+  <div id="bar" hidden>
+    <button id="flipBtn">🔄 Cámara</button>
+    <button id="recBtn" disabled>● Grabar</button>
+  </div>
+
+  <div id="start">
+    <h1>🏊 Guía de encuadre · crol</h1>
+    <p>Coloca el móvil fijo en zoom 1x. La app te dirá si acercarte o alejarte hasta que el encuadre esté en verde.</p>
+    <button id="go">Abrir cámara</button>
+    <div id="err"></div>
+  </div>
+</div>
+
+<script type="module">
+import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+const v = document.getElementById('v');
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+const overlay = document.getElementById('overlay');
+const bar = document.getElementById('bar');
+const startScreen = document.getElementById('start');
+const errEl = document.getElementById('err');
+const statusDot = document.getElementById('statusDot');
+const statusTxt = document.getElementById('statusTxt');
+const instr = document.getElementById('instr');
+const levelDot = document.getElementById('levelDot');
+const levelTxt = document.getElementById('levelTxt');
+const timer = document.getElementById('timer');
+const timerTxt = document.getElementById('timerTxt');
+const recBtn = document.getElementById('recBtn');
+
+let stream = null, facing = 'environment';
+let rec = null, chunks = [], recStart = 0, timerId = null;
+let landmarker = null, rafId = null;
+let goodFrames = 0, framingOk = false;
+
+// --- Parámetros de encuadre (por defecto, a ajustar poolside) ---
+const BAND_TOP = 0.34, BAND_BOT = 0.66;           // banda central (línea de agua a 34%/66%)
+const ZONE_L = 0.18, ZONE_R = 0.82;                // zona horizontal de análisis
+const TARGET_MIN = 0.55, TARGET_MAX = 0.90;        // extensión corporal deseada / alto de banda
+const STABLE_FRAMES = 12;                          // ~0.4s a 30fps antes de confirmar verde
+
+async function initPose() {
+  const vision = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+  );
+  landmarker = await PoseLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+      delegate: "GPU"
+    },
+    runningMode: "VIDEO",
+    numPoses: 1
+  });
+}
+
+async function openCamera() {
+  errEl.textContent = '';
+  try {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+      audio: false
+    });
+    v.srcObject = stream;
+    await v.play();
+    startScreen.style.display = 'none';
+    overlay.hidden = false;
+    bar.hidden = false;
+    requestTilt();
+    if (!landmarker) {
+      statusTxt.textContent = 'cargando detector…';
+      await initPose();
+    }
+    loop();
+  } catch (e) {
+    errEl.textContent = 'No se pudo abrir la cámara: ' + (e.message || e.name) +
+      '. Necesita HTTPS y permiso de cámara.';
+  }
+}
+
+function requestTilt() {
+  const handler = (ev) => {
+    const roll = ev.gamma;
+    if (roll == null) return;
+    const off = Math.abs(roll);
+    const ok = off < 4;
+    levelDot.style.background = ok ? 'var(--ok)' : 'var(--warn)';
+    levelTxt.textContent = ok ? 'nivelado' : ('inclinado ' + Math.round(off) + '°');
+  };
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission().then(s => {
+      if (s === 'granted') window.addEventListener('deviceorientation', handler);
+      else levelTxt.textContent = 'nivel n/d';
+    }).catch(() => { levelTxt.textContent = 'nivel n/d'; });
+  } else if ('DeviceOrientationEvent' in window) {
+    window.addEventListener('deviceorientation', handler);
+  } else {
+    levelTxt.textContent = 'nivel n/d';
+  }
+}
+
+function setStatus(state, msg) {
+  statusDot.style.background = state === 'ok' ? 'var(--ok)' : state === 'warn' ? 'var(--warn)' : 'var(--bad)';
+  statusTxt.textContent = msg;
+}
+
+function loop() {
+  if (!landmarker || v.readyState < 2) { rafId = requestAnimationFrame(loop); return; }
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  const result = landmarker.detectForVideo(v, performance.now());
+  ctx.clearRect(0, 0, c.width, c.height);
+
+  const bandTopPx = c.height * BAND_TOP, bandBotPx = c.height * BAND_BOT;
+  const bandH = bandBotPx - bandTopPx;
+
+  if (result.landmarks && result.landmarks.length) {
+    const pts = result.landmarks[0];
+    let minX = 1, maxX = 0, minY = 1, maxY = 0, visible = 0;
+    for (const p of pts) {
+      if (p.visibility !== undefined && p.visibility < 0.5) continue;
+      visible++;
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    }
+    if (visible >= 6) {
+      const wPx = (maxX - minX) * c.width, hPx = (maxY - minY) * c.height;
+      const extent = Math.max(wPx, hPx);
+      const ratio = extent / bandH;
+      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+      const inZone = cx > ZONE_L && cx < ZONE_R;
+      const clipped = minY * c.height < bandTopPx - 4 || maxY * c.height > bandBotPx + 4;
+
+      ctx.strokeStyle = clipped ? '#ef4444' : (ratio >= TARGET_MIN && ratio <= TARGET_MAX ? '#22c55e' : '#f59e0b');
+      ctx.lineWidth = 3;
+      ctx.strokeRect(minX * c.width, minY * c.height, wPx, hPx);
+
+      if (clipped) {
+        setStatus('bad', 'cuerpo cortado por la banda'); instr.textContent = 'Sube o baja la cámara para que quepa entero'; goodFrames = 0; framingOk = false;
+      } else if (!inZone) {
+        setStatus('warn', 'fuera de la zona'); instr.textContent = 'Muévete entre las marcas verticales'; goodFrames = 0; framingOk = false;
+      } else if (ratio > TARGET_MAX) {
+        setStatus('warn', 'demasiado cerca'); instr.textContent = '⬅️ Da 1-2 pasos atrás con la cámara'; goodFrames = 0; framingOk = false;
+      } else if (ratio < TARGET_MIN) {
+        setStatus('warn', 'demasiado lejos'); instr.textContent = '➡️ Acerca la cámara'; goodFrames = 0; framingOk = false;
+      } else {
+        goodFrames++;
+        if (goodFrames >= STABLE_FRAMES) {
+          setStatus('ok', 'Encuadre OK — puedes grabar'); instr.textContent = '';
+          framingOk = true;
+        } else {
+          setStatus('warn', 'ajustando…'); instr.textContent = '';
+        }
+      }
+    } else {
+      setStatus('warn', 'nadador parcialmente visible'); instr.textContent = ''; goodFrames = 0; framingOk = false;
+    }
+  } else {
+    setStatus('bad', 'buscando nadador…');
+    instr.textContent = 'Que alguien entre en la zona marcada';
+    goodFrames = 0; framingOk = false;
+  }
+
+  recBtn.disabled = !framingOk && !(rec && rec.state === 'recording');
+  recBtn.classList.toggle('ready', framingOk && !(rec && rec.state === 'recording'));
+
+  rafId = requestAnimationFrame(loop);
+}
+
+function toggleRec() {
+  if (!stream) return;
+  if (rec && rec.state === 'recording') { rec.stop(); return; }
+  chunks = [];
+  let mime = 'video/mp4';
+  if (!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm';
+  try { rec = new MediaRecorder(stream, { mimeType: mime }); }
+  catch (e) { rec = new MediaRecorder(stream); }
+  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  rec.onstop = () => {
+    clearInterval(timerId); timer.style.display = 'none';
+    recBtn.classList.remove('on'); recBtn.textContent = '● Grabar';
+    const blob = new Blob(chunks, { type: chunks[0]?.type || 'video/webm' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'crol-' + new Date().toISOString().slice(0,19).replace(/[:T]/g,'-') +
+      (blob.type.includes('mp4') ? '.mp4' : '.webm');
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  };
+  rec.start();
+  recStart = Date.now();
+  timer.style.display = 'block';
+  recBtn.classList.add('on'); recBtn.textContent = '■ Parar';
+  timerId = setInterval(() => {
+    timerTxt.textContent = ((Date.now() - recStart)/1000).toFixed(1) + 's';
+  }, 100);
+}
+
+document.getElementById('go').addEventListener('click', openCamera);
+document.getElementById('flipBtn').addEventListener('click', () => {
+  facing = facing === 'environment' ? 'user' : 'environment';
+  openCamera();
+});
+recBtn.addEventListener('click', toggleRec);
+</script>
+</body>
+</html>
