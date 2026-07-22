@@ -125,8 +125,8 @@ let goodFrames = 0, framingOk = false;
 
 // --- Parámetros de encuadre (por defecto, a ajustar poolside) ---
 const BAND_TOP = 0.34, BAND_BOT = 0.66;           // banda central (línea de agua a 34%/66%)
-const ZONE_L = 0.18, ZONE_R = 0.82;                // zona horizontal de análisis
-const TARGET_MIN = 0.55, TARGET_MAX = 0.90;        // extensión corporal deseada / alto de banda
+const ZONE_L = 0.10, ZONE_R = 0.90;                // zona horizontal de análisis (ensanchada)
+const TARGET_MIN = 0.35, TARGET_MAX = 0.90;        // extensión corporal deseada / alto de banda (mínimo relajado)
 const STABLE_FRAMES = 12;                          // ~0.4s a 30fps antes de confirmar verde
 
 async function initPose() {
@@ -148,7 +148,7 @@ async function openCamera() {
   try {
     if (stream) stream.getTracks().forEach(t => t.stop());
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+      video: { facingMode: { ideal: facing }, width: { ideal: 3840 }, height: { ideal: 2160 } },
       audio: false
     });
     v.srcObject = stream;
