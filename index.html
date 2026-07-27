@@ -586,7 +586,7 @@
   @keyframes popIn { from{opacity:0;transform:scale(0.94)} to{opacity:1;transform:scale(1)} }
 
   /* ── Botón borrar entreno en historial ── */
-  .sess-del-btn { background:rgba(192,57,43,0.12); border:1px solid rgba(192,57,43,0.35); color:var(--red2); width:34px; height:34px; border-radius:9px; font-size:0.95rem; cursor:pointer; flex-shrink:0; margin-right:8px; transition:all 0.12s; }
+  .sess-del-btn { background:rgba(192,57,43,0.12); border:1px solid rgba(192,57,43,0.35); color:var(--red2); min-width:34px; height:34px; padding:0 6px; border-radius:9px; font-size:0.78rem; line-height:1; display:inline-flex; align-items:center; justify-content:center; white-space:nowrap; cursor:pointer; flex-shrink:0; margin-right:8px; transition:all 0.12s; }
   .sess-del-btn:active { transform:scale(0.9); background:rgba(192,57,43,0.25); }
 
   /* ── Botones abrir/cerrar inscripción ── */
@@ -1804,7 +1804,7 @@ function buildCoachStrength() {
 
     // cabecera + peso corporal
     const head = document.createElement('div'); head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px';
-    const nm = document.createElement('div'); nm.className = 'card-title'; nm.style.margin = '0'; nm.textContent = a.name;
+    const nm = document.createElement('div'); nm.className = 'card-title'; nm.style.cssText = 'margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'; nm.textContent = a.name;
     head.appendChild(nm);
     const bwWrap = document.createElement('div'); bwWrap.style.cssText = 'display:flex;align-items:center;gap:6px';
     const bwIn = document.createElement('input'); bwIn.type = 'number'; bwIn.inputMode = 'decimal';
@@ -1848,11 +1848,11 @@ function buildCoachStrength() {
       }
 
       row.innerHTML =
-        '<div style="flex:1"><div style="font-weight:700;color:var(--text)">' + ex.name + '</div>'
-        + '<div style="font-size:0.72rem;color:var(--text2)">últ: ' + lastTxt + '</div></div>'
-        + '<div style="text-align:right;min-width:78px"><div style="font-size:0.62rem;letter-spacing:.5px;text-transform:uppercase;color:var(--text3)">1RM' + relTxt + '</div>'
+        '<div style="flex:1;min-width:0"><div style="font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + ex.name + '</div>'
+        + '<div style="font-size:0.72rem;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">últ: ' + lastTxt + '</div></div>'
+        + '<div style="text-align:right;min-width:54px;flex-shrink:0"><div style="font-size:0.62rem;letter-spacing:.5px;text-transform:uppercase;color:var(--text3)">1RM' + relTxt + '</div>'
         + '<div style="font-family:monospace;font-weight:700;color:var(--text)">' + rmTxt + '</div></div>'
-        + '<div style="text-align:right;min-width:84px"><div style="font-size:0.62rem;letter-spacing:.5px;text-transform:uppercase;color:var(--text3)">sugerido</div>'
+        + '<div style="text-align:right;min-width:70px;flex-shrink:0"><div style="font-size:0.62rem;letter-spacing:.5px;text-transform:uppercase;color:var(--text3)">sugerido</div>'
         + '<div style="font-family:monospace">' + sugTxt + '</div></div>';
       card.appendChild(row);
     });
