@@ -1740,6 +1740,130 @@ function acwrLabel(ratio) {
 // ============================================================
 // MAIN RENDER
 // ============================================================
+// ===== FUERZA (NeuroForce) — vista del COACH =====
+async function dbLoadCoachStrength() {
+  const [ex, aths, sets, bws] = await Promise.all([
+    DATA.strengthEx ? Promise.resolve(DATA.strengthEx) : sbFetch('strength_exercises?select=id,name,uses_bodyweight&order=id'),
+    sbFetch('athletes?select=id,name&active=eq.true&order=name'),
+    sbFetch('strength_sets?select=athlete_id,exercise_id,date,load_kg,reps,rir&order=date.desc'),
+    sbFetch('bodyweight_entries?select=athlete_id,date,weight_kg&order=date.desc')
+  ]);
+  DATA.strengthEx = ex || [];
+  DATA.coachStrAthletes = aths || [];
+  const latest = {}; (sets || []).forEach(function (r) { const k = r.athlete_id + '|' + r.exercise_id; if (!latest[k]) latest[k] = r; });
+  DATA.coachStrLatest = latest;
+  const bw = {}; (bws || []).forEach(function (r) { if (!(r.athlete_id in bw)) bw[r.athlete_id] = r.weight_kg; });
+  DATA.coachStrBw = bw;
+}
+
+async function dbSaveBodyweight(athleteId, weight) {
+  const res = await sbFetch('bodyweight_entries?on_conflict=athlete_id,date', {
+    method: 'POST', prefer: 'resolution=merge-duplicates,return=representation',
+    body: JSON.stringify({ athlete_id: athleteId, date: todayStr(), weight_kg: weight })
+  });
+  DATA.coachStrBw = undefined;
+  return res;
+}
+
+// e1RM ajustado por RIR: reps efectivas = reps + rir
+function e1rmAdj(effLoad, reps, rir) { return effLoad * (1 + (reps + (rir || 0)) / 30); }
+
+function buildCoachStrength() {
+  const d = document.createElement('div');
+
+  if (DATA.coachStrBw === undefined || DATA.coachStrLatest === undefined) {
+    if (!S._cstrLoading) { S._cstrLoading = true; dbLoadCoachStrength().then(function () { S._cstrLoading = false; render(); }); }
+    d.innerHTML = '<div class="card"><div class="card-sub" style="text-align:center">Cargando…</div></div>';
+    return d;
+  }
+
+  if (S.coachStrReps === undefined) S.coachStrReps = 6;
+  if (S.coachStrRir === undefined) S.coachStrRir = 2;
+  S.coachStrBwInput = S.coachStrBwInput || {};
+
+  // Objetivo próxima semana
+  const tgt = document.createElement('div'); tgt.className = 'card'; tgt.style.marginBottom = '16px';
+  tgt.innerHTML = '<div class="card-title">Objetivo próxima semana</div>'
+    + '<div class="card-sub">La carga sugerida se calcula contra esto.</div>';
+  const trow = document.createElement('div'); trow.style.cssText = 'display:flex;gap:10px;margin-top:10px';
+  [['coachStrReps', 'Reps'], ['coachStrRir', 'RIR']].forEach(function (f) {
+    const wrap = document.createElement('div'); wrap.style.flex = '1';
+    const lbl = document.createElement('div'); lbl.className = 'field-label'; lbl.textContent = f[1];
+    const inp = document.createElement('input'); inp.type = 'number'; inp.inputMode = 'numeric'; inp.value = S[f[0]];
+    inp.onchange = function (e) { S[f[0]] = Number(e.target.value); render(); };  // recalcula al salir del campo
+    wrap.appendChild(lbl); wrap.appendChild(inp); trow.appendChild(wrap);
+  });
+  tgt.appendChild(trow);
+  d.appendChild(tgt);
+
+  const R = S.coachStrReps, r = S.coachStrRir;
+
+  (DATA.coachStrAthletes || []).forEach(function (a) {
+    const bw = DATA.coachStrBw[a.id];
+    const card = document.createElement('div'); card.className = 'card'; card.style.marginBottom = '12px';
+
+    // cabecera + peso corporal
+    const head = document.createElement('div'); head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px';
+    const nm = document.createElement('div'); nm.className = 'card-title'; nm.style.margin = '0'; nm.textContent = a.name;
+    head.appendChild(nm);
+    const bwWrap = document.createElement('div'); bwWrap.style.cssText = 'display:flex;align-items:center;gap:6px';
+    const bwIn = document.createElement('input'); bwIn.type = 'number'; bwIn.inputMode = 'decimal';
+    bwIn.placeholder = 'peso'; bwIn.style.cssText = 'width:70px;text-align:right';
+    bwIn.value = (S.coachStrBwInput[a.id] !== undefined) ? S.coachStrBwInput[a.id] : (bw != null ? bw : '');
+    bwIn.oninput = function (e) { S.coachStrBwInput[a.id] = e.target.value; };
+    const bwBtn = document.createElement('button'); bwBtn.className = 'btn'; bwBtn.textContent = 'kg';
+    bwBtn.style.cssText = 'padding:8px 12px;min-width:auto';
+    bwBtn.onclick = function () {
+      const v = S.coachStrBwInput[a.id]; if (v === '' || v == null) return;
+      bwBtn.textContent = '…'; bwBtn.disabled = true;
+      dbSaveBodyweight(a.id, Number(v)).then(function () { S.coachStrBwInput[a.id] = undefined; render(); });
+    };
+    bwWrap.appendChild(bwIn); bwWrap.appendChild(bwBtn); head.appendChild(bwWrap);
+    card.appendChild(head);
+
+    // tabla de ejercicios
+    (DATA.strengthEx || []).forEach(function (ex) {
+      const s = DATA.coachStrLatest[a.id + '|' + ex.id];
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-top:1px solid rgba(100,150,190,0.15);font-size:0.82rem';
+
+      let lastTxt = '<span style="color:var(--text3)">sin dato</span>';
+      let rmTxt = '—', relTxt = '', sugTxt = '—';
+
+      if (s) {
+        lastTxt = s.load_kg + '×' + s.reps + (s.rir != null ? ' · RIR ' + s.rir : '');
+        const needsBw = ex.uses_bodyweight;
+        if (needsBw && bw == null) {
+          rmTxt = '<span style="color:var(--text3)">falta peso</span>';
+          sugTxt = '—';
+        } else {
+          const eff = needsBw ? s.load_kg + bw : s.load_kg;
+          const e1 = e1rmAdj(eff, s.reps, s.rir || 0);
+          rmTxt = e1.toFixed(0) + ' kg';
+          if (bw != null) relTxt = ' · ' + (e1 / bw).toFixed(2) + '×';
+          const sugEff = e1 / (1 + (R + r) / 30);
+          const sug = needsBw ? sugEff - bw : sugEff;          // pull-up: descuenta el peso corporal
+          sugTxt = (sug <= 0 ? 'peso corp. (asistir)' : '<strong style="color:var(--accent2)">' + sug.toFixed(1) + ' kg</strong>');
+        }
+      }
+
+      row.innerHTML =
+        '<div style="flex:1"><div style="font-weight:700;color:var(--text)">' + ex.name + '</div>'
+        + '<div style="font-size:0.72rem;color:var(--text2)">últ: ' + lastTxt + '</div></div>'
+        + '<div style="text-align:right;min-width:78px"><div style="font-size:0.62rem;letter-spacing:.5px;text-transform:uppercase;color:var(--text3)">1RM' + relTxt + '</div>'
+        + '<div style="font-family:monospace;font-weight:700;color:var(--text)">' + rmTxt + '</div></div>'
+        + '<div style="text-align:right;min-width:84px"><div style="font-size:0.62rem;letter-spacing:.5px;text-transform:uppercase;color:var(--text3)">sugerido</div>'
+        + '<div style="font-family:monospace">' + sugTxt + '</div></div>';
+      card.appendChild(row);
+    });
+
+    d.appendChild(card);
+  });
+
+  return d;
+}
+
+
 // ===== FUERZA (NeuroForce) — módulo del atleta =====
 // ── Datos ─────────────────────────────────────────────────────────
 async function dbLoadAthleteStrength(name) {
@@ -1898,9 +2022,9 @@ function render() {
   content.className = 'content';
 
   if (S.role === 'coach') {
-    const tabs = ['Sesión','RPE','Escuadra','Calend.','Inscr.','Equipo','Historial','Asist.'];
+    const tabs = ['Sesión','RPE','Escuadra','Calend.','Inscr.','Equipo','Historial','Asist.','Fuerza'];
     content.appendChild(buildTabs(tabs, S.tab, i => { S.tab = i; if(i===3){S.calYear=new Date().getFullYear();S.calMonth=new Date().getMonth();} render(); }));
-    const views = [buildCoachSession, buildCoachRPE, buildCoachSquad, buildCalendar, buildCoachInscripcions, buildCoachTeam, buildCoachHistorial, buildCoachAttendance];
+    const views = [buildCoachSession, buildCoachRPE, buildCoachSquad, buildCalendar, buildCoachInscripcions, buildCoachTeam, buildCoachHistorial, buildCoachAttendance, buildCoachStrength];
     content.appendChild(views[S.tab]());
   } else {
     const tabs = ['Inicio','Mi RPE','Fuerza','Calend.','Inscr.','Sesión'];
@@ -2232,7 +2356,8 @@ function buildBottomNav() {
       {icon:'inscr',label:'Inscr.'},
       {icon:'equipo',label:'Equipo'},
       {icon:'historial',label:'Historial'},
-      {icon:'asistencia',label:'Asist.'}
+      {icon:'asistencia',label:'Asist.'},
+      {icon:'fuerza',label:'Fuerza'}
     ];
     items.forEach((item, i) => {
       const btn = document.createElement('button');
