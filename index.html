@@ -362,7 +362,7 @@
   .hist-day-name { font-size: 0.65rem; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; }
   .hist-day-num { font-size: 1.3rem; font-weight: 700; line-height: 1; }
   .hist-month { font-size: 0.65rem; color: var(--text2); text-transform: uppercase; }
-  .hist-info { flex: 1; }
+  .hist-info { flex: 1; min-width: 0; }
   .hist-title { font-size: 0.9rem; font-weight: 600; color: var(--red2); }
   .hist-meta { font-size: 0.75rem; color: var(--text2); display: flex; gap: 10px; margin-top: 2px; }
   .hist-body { padding: 0 14px 14px; border-top: 1px solid var(--border); display: none; }
@@ -3524,9 +3524,11 @@ function buildCoachHistorial() {
       });
     };
 
-    header.append(dateBlock, info);
-    editBtns.forEach(function(eb){ header.appendChild(eb); });
-    header.append(delBtn, arrow);
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;align-items:center;gap:4px;flex-shrink:0;';
+    editBtns.forEach(function(eb){ actions.appendChild(eb); });
+    actions.append(delBtn, arrow);
+    header.append(dateBlock, info, actions);
     header.onclick = function() { S.histSessionOpen[s.date] = !S.histSessionOpen[s.date]; render(); };
     row.appendChild(header);
 
