@@ -2024,7 +2024,7 @@ function render() {
   if (S.role === 'coach') {
     const tabs = ['Sesión','RPE','Escuadra','Calend.','Inscr.','Equipo','Historial','Asist.'];
     content.appendChild(buildTabs(tabs, S.tab, i => { S.tab = i; if(i===3){S.calYear=new Date().getFullYear();S.calMonth=new Date().getMonth();} render(); }));
-    const views = [buildCoachSession, buildCoachRPE, buildCoachSquad, buildCalendar, buildCoachInscripcions, buildCoachTeam, buildCoachHistorial, buildCoachAttendance, buildCoachStrength];
+    const views = [buildCoachSession, buildCoachRPE, buildCoachSquad, buildCalendar, buildCoachInscripcions, buildCoachTeam, buildCoachHistorial, buildCoachAttendance];
     content.appendChild(views[S.tab]());
   } else {
     const tabs = ['Inicio','Mi RPE','Fuerza','Calend.','Inscr.','Sesión'];
@@ -2356,8 +2356,7 @@ function buildBottomNav() {
       {icon:'inscr',label:'Inscr.'},
       {icon:'equipo',label:'Equipo'},
       {icon:'historial',label:'Historial'},
-      {icon:'asistencia',label:'Asist.'},
-      {icon:'fuerza',label:'Fuerza'}
+      {icon:'asistencia',label:'Asist.'}
     ];
     items.forEach((item, i) => {
       const btn = document.createElement('button');
@@ -3398,10 +3397,11 @@ function buildCoachHistorial() {
     b.onclick = function() { S.histView = key; render(); };
     return b;
   };
-  toggle.append(mkToggleBtn('Entrenos', 'entrenos'), mkToggleBtn('Encuestas', 'encuestas'));
+  toggle.append(mkToggleBtn('Entrenos', 'entrenos'), mkToggleBtn('Encuestas', 'encuestas'), mkToggleBtn('Fuerza', 'fuerza'));
   d.appendChild(toggle);
 
   if (S.histView === 'encuestas') { d.appendChild(buildHistorialEncuestas()); return d; }
+  if (S.histView === 'fuerza') { d.appendChild(buildCoachStrength()); return d; }
 
   const st0 = document.createElement('div'); st0.className = 'section-title'; st0.textContent = 'HISTORIAL DE SESIONES';
   d.appendChild(st0);
