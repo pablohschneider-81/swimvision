@@ -255,7 +255,7 @@
 
   /* CONTENT */
   .content { padding: 16px 16px 90px; flex: 1; background: transparent; }
-  .section-title { font-size: 0.75rem; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--red2); margin-bottom: 12px; }
+  .section-title { font-size: 0.95rem; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--red2); margin-bottom: 14px; }
   .card {
     background: rgba(255,255,255,0.55);
     backdrop-filter: blur(20px) saturate(160%);
@@ -1919,6 +1919,8 @@ function strengthSpark(data, w, h) {
 // ── Pantalla ──────────────────────────────────────────────────────
 function buildAthleteStrength() {
   const d = document.createElement('div');
+  const st = document.createElement('div'); st.className = 'section-title'; st.textContent = 'FUERZA';
+  d.appendChild(st);
 
   // Carga perezosa (patrón cache-then-render)
   if (DATA.athStrTrend === undefined) {
@@ -1926,7 +1928,9 @@ function buildAthleteStrength() {
       S._strLoading = true;
       dbLoadAthleteStrength(S.athleteName).then(function () { S._strLoading = false; render(); });
     }
-    d.innerHTML = '<div class="card"><div class="card-sub" style="text-align:center">Cargando…</div></div>';
+    const loading = document.createElement('div'); loading.className = 'card';
+    loading.innerHTML = '<div class="card-sub" style="text-align:center">Cargando…</div>';
+    d.appendChild(loading);
     return d;
   }
 
@@ -2022,13 +2026,10 @@ function render() {
   content.className = 'content';
 
   if (S.role === 'coach') {
-    const tabs = ['Sesión','RPE','Escuadra','Calend.','Inscr.','Equipo','Historial','Asist.'];
-    content.appendChild(buildTabs(tabs, S.tab, i => { S.tab = i; if(i===3){S.calYear=new Date().getFullYear();S.calMonth=new Date().getMonth();} render(); }));
+    // La navegación vive solo en el menú inferior; aquí ya no se pinta la fila de tabs.
     const views = [buildCoachSession, buildCoachRPE, buildCoachSquad, buildCalendar, buildCoachInscripcions, buildCoachTeam, buildCoachHistorial, buildCoachAttendance];
     content.appendChild(views[S.tab]());
   } else {
-    const tabs = ['Inicio','Mi RPE','Fuerza','Calend.','Inscr.','Sesión'];
-    content.appendChild(buildTabs(tabs, S.ath_tab, i => { S.ath_tab = i; if(i===3){S.calYear=new Date().getFullYear();S.calMonth=new Date().getMonth();} render(); }));
     const views = [buildAthleteInicio, buildAthleteRPE, buildAthleteStrength, buildCalendar, buildAthleteInscripcions, buildAthleteSession];
     content.appendChild(views[S.ath_tab]());
   }
@@ -2632,6 +2633,8 @@ function updateMeters(container) {
 // ============================================================
 function buildCoachRPE() {
   const d = document.createElement('div');
+  const stTop = document.createElement('div'); stTop.className = 'section-title'; stTop.textContent = 'RPE';
+  d.appendChild(stTop);
   const today = todayStr();
   const session = getSession(today);
   const dayRPE = getDayRPE(today);
@@ -2822,6 +2825,8 @@ function buildCoachRPE() {
 
 function buildCoachSquad() {
   const d = document.createElement('div');
+  const st = document.createElement('div'); st.className = 'section-title'; st.textContent = 'ESCUADRA';
+  d.appendChild(st);
   const athletes = getAthletes();
 
   // ── Cargar historial de todos + asistencia (una sola vez por sesión de la app) ──
@@ -2964,6 +2969,8 @@ function buildCoachSquad() {
 function buildCalendar() {
   const isCoach = S.role === 'coach';
   const d = document.createElement('div');
+  const st = document.createElement('div'); st.className = 'section-title'; st.textContent = 'CALENDARIO';
+  d.appendChild(st);
   const today = new Date();
   const year = S.calYear, month = S.calMonth;
   const competitions = getCompetitions();
@@ -4012,6 +4019,8 @@ function buildAthleteInicio() {
 // ============================================================
 function buildAthleteRPE() {
   const d = document.createElement('div');
+  const st = document.createElement('div'); st.className = 'section-title'; st.textContent = 'MI RPE';
+  d.appendChild(st);
   const today = todayStr();
   const rawSession = getSession(today);
   const slots = daySlots(rawSession);
@@ -4160,6 +4169,8 @@ function buildAthleteRPE() {
 // ============================================================
 function buildAthleteSession() {
   const d = document.createElement('div');
+  const st = document.createElement('div'); st.className = 'section-title'; st.textContent = 'SESIÓN';
+  d.appendChild(st);
   const today = new Date();
   const todayS = todayStr();
 
@@ -4766,10 +4777,14 @@ function inscCompSelector(comps, activeId, onPick) {
 // ============================================================
 function buildAthleteInscripcions() {
   const d = document.createElement('div');
+  const stTop = document.createElement('div'); stTop.className = 'section-title'; stTop.textContent = 'INSCRIPCIONES';
+  d.appendChild(stTop);
   const comps = inscEligibleComps();
 
   if (comps.length === 0) {
-    d.innerHTML = '<div class="empty-state">No hay competiciones próximas.<br>Cuando el entrenador añada una al calendario, podrás inscribirte aquí.</div>';
+    const empty = document.createElement('div'); empty.className = 'empty-state';
+    empty.innerHTML = 'No hay competiciones próximas.<br>Cuando el entrenador añada una al calendario, podrás inscribirte aquí.';
+    d.appendChild(empty);
     return d;
   }
 
@@ -4866,10 +4881,14 @@ function buildAthleteInscripcions() {
 // ============================================================
 function buildCoachInscripcions() {
   const d = document.createElement('div');
+  const stTop = document.createElement('div'); stTop.className = 'section-title'; stTop.textContent = 'INSCRIPCIONES';
+  d.appendChild(stTop);
   const comps = inscEligibleComps();
 
   if (comps.length === 0) {
-    d.innerHTML = '<div class="empty-state">No hay competiciones próximas.<br>Añade una en el calendario: la ventana de inscripción se calcula sola (abre 20 días antes, dura 5).</div>';
+    const empty = document.createElement('div'); empty.className = 'empty-state';
+    empty.innerHTML = 'No hay competiciones próximas.<br>Añade una en el calendario: la ventana de inscripción se calcula sola (abre 20 días antes, dura 5).';
+    d.appendChild(empty);
     return d;
   }
 
