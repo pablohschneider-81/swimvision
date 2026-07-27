@@ -2022,7 +2022,7 @@ function render() {
   content.className = 'content';
 
   if (S.role === 'coach') {
-    const tabs = ['Sesión','RPE','Escuadra','Calend.','Inscr.','Equipo','Historial','Asist.','Fuerza'];
+    const tabs = ['Sesión','RPE','Escuadra','Calend.','Inscr.','Equipo','Historial','Asist.'];
     content.appendChild(buildTabs(tabs, S.tab, i => { S.tab = i; if(i===3){S.calYear=new Date().getFullYear();S.calMonth=new Date().getMonth();} render(); }));
     const views = [buildCoachSession, buildCoachRPE, buildCoachSquad, buildCalendar, buildCoachInscripcions, buildCoachTeam, buildCoachHistorial, buildCoachAttendance, buildCoachStrength];
     content.appendChild(views[S.tab]());
@@ -3488,20 +3488,23 @@ function buildCoachHistorial() {
       render();
     };
 
-    // Un botón de editar por cada turno existente (mañana / tarde)
+    // Un solo lápiz en la fila colapsada — solo cuando hay un único turno.
+    // Con turno doble (mañana+tarde) el lápiz de cada uno vive junto a su
+    // propia etiqueta dentro del desplegable (hay sitio de sobra ahí).
     const editBtns = [];
-    hdrSlots.forEach(function(sl) {
+    if (hdrSlots.length === 1) {
+      const sl = hdrSlots[0];
       const eb = document.createElement('button');
       eb.className = 'sess-del-btn';
-      eb.innerHTML = hdrSlots.length > 1 ? (sl.slot === 'am' ? '✏️☀️' : '✏️🌙') : '✏️';
-      eb.title = 'Editar ' + (sl.slot === 'am' ? 'mañana' : sl.slot === 'pm' ? 'tarde' : 'sesión');
+      eb.innerHTML = '✏️';
+      eb.title = 'Editar sesión';
       eb.style.marginRight = '4px';
       eb.onclick = function(ev) {
         ev.stopPropagation();
         loadSlotForEdit(sl.sess, sl.slot);
       };
       editBtns.push(eb);
-    });
+    }
 
     // Botón borrar entreno (solo coach)
     const delBtn = document.createElement('button');
@@ -3539,10 +3542,19 @@ function buildCoachHistorial() {
       histSlots.forEach(function(slotObj, si) {
         const sess2 = slotObj.sess;
         if (histSlots.length > 1) {
-          const sh = document.createElement('div');
-          sh.style.cssText = 'font-size:0.78rem;font-weight:700;color:var(--gold);margin-top:' + (si > 0 ? '16px' : '8px') + ';padding-bottom:4px;border-bottom:1px solid var(--border)';
-          sh.textContent = slotObj.label || '☀️ Mañana';
-          body.appendChild(sh);
+          const shRow = document.createElement('div');
+          shRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:' + (si > 0 ? '16px' : '8px') + ';padding-bottom:4px;border-bottom:1px solid var(--border)';
+          const shLbl = document.createElement('span');
+          shLbl.style.cssText = 'font-size:0.78rem;font-weight:700;color:var(--gold)';
+          shLbl.textContent = slotObj.label || '☀️ Mañana';
+          const slotEditBtn = document.createElement('button');
+          slotEditBtn.className = 'sess-del-btn';
+          slotEditBtn.innerHTML = '✏️';
+          slotEditBtn.title = 'Editar ' + (slotObj.slot === 'am' ? 'mañana' : 'tarde');
+          slotEditBtn.style.cssText = 'min-width:28px;height:28px;font-size:0.7rem;margin-right:0;flex-shrink:0;';
+          slotEditBtn.onclick = function(ev) { ev.stopPropagation(); loadSlotForEdit(sess2, slotObj.slot); };
+          shRow.append(shLbl, slotEditBtn);
+          body.appendChild(shRow);
         }
         if (sess2.phase === 'Fuerza') {
           if (sess2.alphaPhase) {
