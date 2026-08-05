@@ -768,7 +768,7 @@ function buildSbBanner() {
 let _athleteCache = null;
 async function dbGetAthletes() {
   if (_athleteCache) return _athleteCache;
-  const rows = await sbFetch('athletes?select=id,name,morning_days,pin_hash&active=eq.true&order=name');
+  const rows = await sbFetch('athletes_directory?select=id,name,morning_days,has_pin&order=name');
   _athleteCache = rows || [];
   return _athleteCache;
 }
@@ -3303,7 +3303,7 @@ function buildCoachTeam() {
     const item = document.createElement('div'); item.className = 'athlete-item';
     const athlete = DATA.athletes.find(a => a.name === name);
     const n = document.createElement('span'); n.className = 'athlete-name'; n.textContent = name;
-    if (athlete && !athlete.pin_hash) {
+    if (athlete && !athlete.has_pin) {
       const warn = document.createElement('span');
       warn.textContent = ' ⚠️ sin PIN';
       warn.style.cssText = 'color:#f39c12;font-size:0.7rem;font-weight:600;margin-left:6px';
