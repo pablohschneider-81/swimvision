@@ -17,7 +17,7 @@
 <title>Ondrift</title>
 <style>
   :root {
-    --bg: #e9f0f7;
+    --bg: #cfdbe9;
     --surface: rgba(255,255,255,0.45);
     --surface2: rgba(255,255,255,0.30);
     --accent: #2980b9;
@@ -324,7 +324,7 @@
   /* FORM */
   label.field-label { display: block; font-size: 0.75rem; font-weight: 600; color: var(--text2); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; margin-top: 14px; }
   input[type=text], input[type=number], input[type=date], select, textarea {
-    width: 100%; background: rgba(255,255,255,0.6); border: 1px solid rgba(255,255,255,0.8); color: var(--text);
+    width: 100%; background: rgba(255,255,255,0.72); border: 1.5px solid rgba(95,130,170,0.42); color: var(--text);
     padding: 10px 14px; border-radius: 8px; font-size: 0.9rem; outline: none; font-family: inherit;
     -webkit-appearance: none; appearance: none; box-sizing: border-box;
   }
@@ -688,7 +688,7 @@ let SB_STATUS = 'ok'; // 'ok' | 'nokey' | 'auth' | 'offline'
 
 // --- Sesión de coach (Supabase Auth) para que las policies RLS de escritura reconozcan auth.uid() ---
 const COACH_EMAIL = 'pablohschneider@gmail.com'; // solo prefill del formulario (el email no es secreto)
-let SB_ACCESS_TOKEN = localStorage.getItem('ondrift_sb_token') || null;
+let SB_ACCESS_TOKEN = null; // no restauramos token viejo al arrancar: caducaría y daría un 401 falso ("clave revocada"). El coach re-loguea por sesión.
 let COACH_CREDS = null; // {email,password} SOLO en memoria durante la sesion; nunca se guarda en disco ni se hardcodea
 
 async function coachSignIn(email, password) {
@@ -2401,6 +2401,69 @@ function buildAthletePin() {
 // ============================================================
 // HEADER
 // ============================================================
+function openCoachPasswordModal() {
+  if (document.getElementById('pw-modal')) return;
+  const ov = document.createElement('div');
+  ov.id = 'pw-modal';
+  ov.style.cssText = 'position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center; padding:24px; background:rgba(20,40,70,0.45); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);';
+  const card = document.createElement('div');
+  card.className = 'login-card';
+  card.style.cssText = 'max-width:360px; width:100%;';
+  const h = document.createElement('h2'); h.textContent = 'Cambiar contrase\u00f1a'; card.appendChild(h);
+
+  const p1 = document.createElement('input');
+  p1.type = 'password'; p1.placeholder = 'Nueva contrase\u00f1a'; p1.autocomplete = 'new-password'; p1.className = 'select-styled';
+  card.appendChild(p1);
+  const p2 = document.createElement('input');
+  p2.type = 'password'; p2.placeholder = 'Repetir contrase\u00f1a'; p2.autocomplete = 'new-password'; p2.className = 'select-styled';
+  p2.style.marginTop = '10px';
+  card.appendChild(p2);
+
+  const msg = document.createElement('div');
+  msg.style.cssText = 'font-size:0.85rem; margin-top:10px; min-height:1.2em; text-align:center;';
+  card.appendChild(msg);
+
+  const save = document.createElement('button');
+  save.className = 'btn btn-primary'; save.textContent = 'Guardar'; save.style.marginTop = '12px';
+  card.appendChild(save);
+  const cancel = document.createElement('button');
+  cancel.className = 'btn btn-secondary'; cancel.textContent = 'Cancelar'; cancel.style.marginTop = '8px';
+  cancel.onclick = () => ov.remove();
+  card.appendChild(cancel);
+
+  save.onclick = async () => {
+    if (p1.value.length < 8) { msg.style.color = '#e74c3c'; msg.textContent = 'M\u00ednimo 8 caracteres.'; return; }
+    if (p1.value !== p2.value) { msg.style.color = '#e74c3c'; msg.textContent = 'No coinciden.'; return; }
+    if (!SB_ACCESS_TOKEN) { msg.style.color = '#e74c3c'; msg.textContent = 'Sesi\u00f3n caducada, vuelve a entrar.'; return; }
+    save.disabled = true; save.textContent = 'Guardando...';
+    try {
+      const res = await fetch(SUPABASE_URL + '/auth/v1/user', {
+        method: 'PUT',
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SB_ACCESS_TOKEN, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: p1.value })
+      });
+      if (res.ok) {
+        if (COACH_CREDS) COACH_CREDS.password = p1.value; // que la reautenticacion siga con la nueva
+        msg.style.color = 'var(--green)'; msg.textContent = 'Contrase\u00f1a cambiada \u2713';
+        save.textContent = 'Hecho';
+        setTimeout(() => ov.remove(), 1200);
+      } else {
+        const t = await res.text(); console.error('pw change', t);
+        msg.style.color = '#e74c3c'; msg.textContent = 'No se pudo cambiar (\u00bfsesi\u00f3n caducada?).';
+        save.disabled = false; save.textContent = 'Guardar';
+      }
+    } catch (e) {
+      msg.style.color = '#e74c3c'; msg.textContent = 'Sin conexi\u00f3n.';
+      save.disabled = false; save.textContent = 'Guardar';
+    }
+  };
+
+  ov.appendChild(card);
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+  setTimeout(() => p1.focus(), 50);
+}
+
 function buildHeader() {
   const h = document.createElement('div');
   h.className = 'header';
@@ -2415,10 +2478,20 @@ function buildHeader() {
   name.textContent = S.role === 'coach' ? 'Entrenador' : S.athleteName;
   left.appendChild(name);
   h.appendChild(left);
+  const right = document.createElement('div');
+  right.style.cssText = 'display:flex; gap:8px; align-items:center;';
+  if (S.role === 'coach') {
+    const pwBtn = document.createElement('button');
+    pwBtn.className = 'btn-exit'; pwBtn.textContent = '\ud83d\udd11';
+    pwBtn.title = 'Cambiar contrase\u00f1a';
+    pwBtn.onclick = openCoachPasswordModal;
+    right.appendChild(pwBtn);
+  }
   const btn = document.createElement('button');
   btn.className = 'btn-exit'; btn.textContent = 'Salir';
   btn.onclick = () => { S.role = null; S.athleteName = null; render(); };
-  h.appendChild(btn);
+  right.appendChild(btn);
+  h.appendChild(right);
   return h;
 }
 
