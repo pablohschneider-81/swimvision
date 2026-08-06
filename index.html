@@ -17,7 +17,7 @@
 <title>Ondrift</title>
 <style>
   :root {
-    --bg: #c0d2e0;
+    --bg: #e9f0f7;
     --surface: rgba(255,255,255,0.45);
     --surface2: rgba(255,255,255,0.30);
     --accent: #2980b9;
@@ -38,7 +38,7 @@
   }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-  body { background: var(--bg); background-image: radial-gradient(ellipse at 15% 15%, rgba(150,200,240,0.68) 0%, transparent 55%), radial-gradient(ellipse at 85% 80%, rgba(170,220,195,0.62) 0%, transparent 65%), radial-gradient(ellipse at 55% 5%, rgba(220,210,170,0.3) 0%, transparent 45%), radial-gradient(ellipse at 88% 12%, rgba(150,200,240,0.52) 0%, transparent 60%); background-attachment: fixed; color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
+  body { background: var(--bg); background-image: radial-gradient(ellipse at 15% 15%, rgba(190,220,247,0.50) 0%, transparent 55%), radial-gradient(ellipse at 85% 80%, rgba(206,228,247,0.42) 0%, transparent 65%), radial-gradient(ellipse at 88% 12%, rgba(190,220,247,0.38) 0%, transparent 60%); background-attachment: fixed; color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
   #app { width: 100%; max-width: 480px; min-height: 100vh; display: flex; flex-direction: column; position: relative; padding-bottom: 70px; background: transparent; padding-top: env(safe-area-inset-top, 0px); }
   /* En modo PWA (pantalla completa), respetar notch y barra inferior */
   @media all and (display-mode: standalone) {
@@ -58,7 +58,7 @@
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     min-height: 100vh; padding: 24px; gap: 32px;
     position: relative; overflow: hidden;
-    background: linear-gradient(160deg, #d8e4ec 0%, #e2edf4 35%, #e8f0ea 65%, #e0eaf2 100%);
+    background: linear-gradient(160deg, #e4edf5 0%, #eaf1f8 35%, #e6eef6 65%, #e2ecf5 100%);
   }
   .login-screen::before { display: none; }
   .login-screen::after { display: none; }
@@ -134,10 +134,9 @@
     background: linear-gradient(135deg, #1a6fa8 0%, #2980b9 60%, #3498db 100%);
     color: #fff;
     border-color: rgba(52,152,219,0.6);
-    box-shadow: 0 0 14px rgba(52,152,219,0.35), inset 0 1px 0 rgba(255,255,255,0.1);
-    animation: neon-pulse 2.8s ease-in-out infinite;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
   }
-  .btn-primary:active { transform: scale(0.97); box-shadow: 0 0 6px rgba(52,152,219,0.6); animation: none; }
+  .btn-primary:active { transform: scale(0.97); box-shadow: inset 0 1px 0 rgba(255,255,255,0.1); }
   .btn-secondary {
     background: transparent;
     border: 1px solid rgba(52,152,219,0.3);
@@ -163,12 +162,12 @@
       inset 0 1.5px 0 rgba(255,255,255,0.95),
       inset 0 -10px 18px rgba(120,170,210,0.16);
   }
-  .login-screen .btn-primary,
-  .login-screen .btn-secondary {
+  .btn-primary,
+  .btn-secondary {
     border-radius: 22px;
     border-width: 1.5px;
   }
-  .login-screen .btn-primary {
+  .btn-primary {
     background:
       linear-gradient(180deg, rgba(255,255,255,0.75) 0%, rgba(255,255,255,0) 40%),
       linear-gradient(160deg, rgba(70,150,210,0.65) 0%, rgba(26,111,168,0.9) 100%);
@@ -181,12 +180,12 @@
       inset 0 -12px 18px rgba(10,60,100,0.35);
     animation: none;
   }
-  .login-screen .btn-primary:active {
+  .btn-primary:active {
     box-shadow:
       0 4px 10px rgba(26,111,168,0.45),
       inset 0 1px 0 rgba(255,255,255,0.5);
   }
-  .login-screen .btn-secondary {
+  .btn-secondary {
     background:
       linear-gradient(180deg, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0) 45%),
       linear-gradient(160deg, rgba(255,255,255,0.3) 0%, rgba(190,220,240,0.28) 100%);
@@ -688,20 +687,26 @@ const SUPABASE_KEY = 'sb_publishable_Wc-Lo4L8ZPZ_OOg1F8iVVg_vWPEabtn'; // clave 
 let SB_STATUS = 'ok'; // 'ok' | 'nokey' | 'auth' | 'offline'
 
 // --- Sesión de coach (Supabase Auth) para que las policies RLS de escritura reconozcan auth.uid() ---
-const COACH_EMAIL = 'pablohschneider@gmail.com';
-const COACH_PASSWORD = 'Elherny1';
+const COACH_EMAIL = 'pablohschneider@gmail.com'; // solo prefill del formulario (el email no es secreto)
 let SB_ACCESS_TOKEN = localStorage.getItem('ondrift_sb_token') || null;
+let COACH_CREDS = null; // {email,password} SOLO en memoria durante la sesion; nunca se guarda en disco ni se hardcodea
 
-async function coachSignIn() {
+async function coachSignIn(email, password) {
+  // Sin argumentos = reintento silencioso con las credenciales en memoria (p.ej. token expirado)
+  if (!email || !password) {
+    if (!COACH_CREDS) return false;
+    email = COACH_CREDS.email; password = COACH_CREDS.password;
+  }
   try {
     const res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: COACH_EMAIL, password: COACH_PASSWORD })
+      body: JSON.stringify({ email: email, password: password })
     });
     if (!res.ok) { console.error('Coach auth error', await res.text()); return false; }
     const data = await res.json();
     SB_ACCESS_TOKEN = data.access_token;
+    COACH_CREDS = { email: email, password: password };
     localStorage.setItem('ondrift_sb_token', SB_ACCESS_TOKEN);
     return true;
   } catch (e) {
@@ -1291,7 +1296,7 @@ const FATIGUE = [
   {v:4,label:'Cansado',color:'#d2691e'},
   {v:5,label:'Agotado',color:'#c0392b'}
 ];
-const COACH_PIN = '1234';
+/* COACH_PIN '1234' eliminado: el acceso de coach ahora es por email+contraseña reales */
 
 let S = {
   // auth
@@ -2252,61 +2257,61 @@ function buildLogin() {
 // ============================================================
 function buildPin() {
   const d = document.createElement('div');
-  const pin = document.createElement('div');
-  pin.className = 'pin-screen';
-  const title = document.createElement('h2');
-  title.textContent = 'PIN Entrenador'; title.style.fontSize = '1.2rem';
-  pin.appendChild(title);
-
-  const dots = document.createElement('div');
-  dots.className = 'pin-dots';
-  for (let i = 0; i < 4; i++) {
-    const dot = document.createElement('div');
-    dot.className = 'pin-dot' + (i < S.pinBuffer.length ? ' filled' : '');
-    dots.appendChild(dot);
-  }
-  pin.appendChild(dots);
-
-  if (S.pinError) {
-    const err = document.createElement('div');
-    err.className = 'pin-error'; err.textContent = 'PIN incorrecto. Inténtalo de nuevo.';
-    pin.appendChild(err);
-  }
-
-  const grid = document.createElement('div');
-  grid.className = 'pin-grid';
-  const keys = ['1','2','3','4','5','6','7','8','9','⌫','0','✓'];
-  keys.forEach(k => {
-    const btn = document.createElement('div');
-    btn.className = 'pin-btn'; btn.textContent = k;
-    btn.onclick = () => {
-      const onPinOk = () => {
-        S.role = 'coach'; S.tab = 0; render();
-        coachSignIn(); // siempre reautentica como coach: el token guardado puede ser el de un atleta que probó antes
-      };
-      if (k === '⌫') { S.pinBuffer = S.pinBuffer.slice(0,-1); S.pinError = false; render(); }
-      else if (k === '✓') {
-        if (S.pinBuffer === COACH_PIN) onPinOk();
-        else { S.pinError = true; S.pinBuffer = ''; render(); }
-      } else if (S.pinBuffer.length < 4) {
-        S.pinBuffer += k;
-        if (S.pinBuffer.length === 4) {
-          if (S.pinBuffer === COACH_PIN) onPinOk();
-          else { S.pinError = true; S.pinBuffer = ''; render(); }
-        } else render();
-      }
-    };
-    grid.appendChild(btn);
-  });
-  pin.appendChild(grid);
-  d.appendChild(pin);
+  d.className = 'login-screen';
 
   const backBtn = document.createElement('button');
   backBtn.className = 'btn-exit';
-  backBtn.textContent = '← Volver';
-  backBtn.style.cssText = 'margin:20px 16px 0;display:block;';
-  backBtn.onclick = () => { S.role = null; render(); };
-  d.insertBefore(backBtn, pin);
+  backBtn.textContent = '\u2190 Volver';
+  backBtn.style.cssText = 'position:absolute; top:20px; left:16px; z-index:2;';
+  backBtn.onclick = () => { S.role = null; S.pinError = false; render(); };
+  d.appendChild(backBtn);
+
+  const card = document.createElement('div');
+  card.className = 'login-card';
+
+  const h2 = document.createElement('h2');
+  h2.textContent = 'Acceso Entrenador';
+  card.appendChild(h2);
+
+  // Mismo glass que el selector de atleta, sin la flecha del desplegable
+  const glassBg = 'background: linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0) 42%), linear-gradient(160deg, rgba(255,255,255,0.4) 0%, rgba(210,230,245,0.28) 60%, rgba(180,215,240,0.3) 100%);';
+
+  const email = document.createElement('input');
+  email.type = 'email'; email.placeholder = 'Email'; email.autocomplete = 'username';
+  email.className = 'select-styled';
+  email.value = (S.coachEmail != null) ? S.coachEmail : COACH_EMAIL;
+  email.style.cssText = glassBg;
+  email.oninput = () => { S.coachEmail = email.value; };
+  card.appendChild(email);
+
+  const pass = document.createElement('input');
+  pass.type = 'password'; pass.placeholder = 'Contrase\u00f1a'; pass.autocomplete = 'current-password';
+  pass.className = 'select-styled';
+  pass.style.cssText = glassBg + 'margin-top:14px;';
+  card.appendChild(pass);
+
+  if (S.pinError) {
+    const err = document.createElement('div');
+    err.className = 'pin-error'; err.textContent = 'Email o contrase\u00f1a incorrectos.';
+    err.style.marginTop = '12px';
+    card.appendChild(err);
+  }
+
+  const enter = document.createElement('button');
+  enter.className = 'btn btn-primary';
+  enter.textContent = 'Entrar';
+  enter.style.marginTop = '14px';
+  const doLogin = async () => {
+    enter.disabled = true; enter.textContent = 'Entrando\u2026';
+    const ok = await coachSignIn((email.value || '').trim(), pass.value);
+    if (ok) { S.role = 'coach'; S.tab = 0; S.pinError = false; S.coachEmail = null; render(); }
+    else { S.pinError = true; render(); }
+  };
+  enter.onclick = doLogin;
+  pass.onkeydown = (e) => { if (e.key === 'Enter') doLogin(); };
+  card.appendChild(enter);
+
+  d.appendChild(card);
   return d;
 }
 
