@@ -2482,7 +2482,7 @@ function buildHeader() {
   right.style.cssText = 'display:flex; gap:8px; align-items:center;';
   if (S.role === 'coach') {
     const pwBtn = document.createElement('button');
-    pwBtn.className = 'btn-exit'; pwBtn.textContent = '\ud83d\udd11';
+    pwBtn.className = 'btn-exit'; pwBtn.textContent = '🔑 Clave';
     pwBtn.title = 'Cambiar contrase\u00f1a';
     pwBtn.onclick = openCoachPasswordModal;
     right.appendChild(pwBtn);
