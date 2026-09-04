@@ -2273,11 +2273,11 @@ async function dbSaveLactateTest(payload) {
 }
 
 async function dbGetLactateTests(athleteId) {
-  return sbFetch('lactate_tests?athlete_id=eq.' + athleteId + '&order=date.desc', { method: 'GET' });
+  return sbFetch('lactate_tests?athlete_id=eq.' + athleteId + '&order=date.desc,created_at.desc', { method: 'GET' });
 }
 
 async function dbGetMyLactateTests() {
-  return sbFetch('lactate_tests?order=date.desc&limit=20', { method: 'GET' });
+  return sbFetch('lactate_tests?order=date.desc,created_at.desc&limit=20', { method: 'GET' });
 }
 
 async function dbSaveBodyweight(athleteId, weight) {
