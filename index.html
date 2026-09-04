@@ -2224,20 +2224,29 @@ function paceFromSpeed(v) {
   return m + ':' + (s < 10 ? '0' : '') + s;
 }
 
-function calcLactateThreshold(steps) {
-  // steps: [{distance, time_s, lactate}, ...] de menor a mayor intensidad
+function calcLactateThresholdAt(steps, target) {
   const pts = steps.filter(function(s){ return s.time_s > 0 && s.lactate != null; })
                    .map(function(s) { return { v: s.distance / s.time_s, lac: s.lactate }; });
-  const TARGET = 4.0;
   for (let i = 0; i < pts.length - 1; i++) {
     const a = pts[i], b = pts[i+1];
-    if (a.lac <= TARGET && b.lac >= TARGET && b.lac !== a.lac) {
-      const frac = (TARGET - a.lac) / (b.lac - a.lac);
+    if (a.lac <= target && b.lac >= target && b.lac !== a.lac) {
+      const frac = (target - a.lac) / (b.lac - a.lac);
       const vT = a.v + frac * (b.v - a.v);
       return { v: vT, pace100: paceFromSpeed(vT) };
     }
   }
-  return null; // nunca cruza 4.0 mmol/L — test insuficiente o muy fácil
+  return null;
+}
+
+function calcLactateThreshold(steps) { return calcLactateThresholdAt(steps, 4.0); }
+function calcAerobicThreshold(steps) { return calcLactateThresholdAt(steps, 2.0); }
+
+function calcPeakVelocity(steps) {
+  const valid = steps.filter(function(s){ return s.time_s > 0; });
+  if (!valid.length) return null;
+  const last = valid[valid.length - 1];
+  const v = last.distance / last.time_s;
+  return { v: v, pace100: paceFromSpeed(v) };
 }
 
 function calcLactateZones(vThreshold) {
@@ -3892,6 +3901,8 @@ function buildLactateModal() {
           S.lactateProtocol = row.protocol;
           S.lactateResult = {
             threshold: { v: row.threshold_speed, pace100: row.threshold_pace100 },
+            aerobic: row.aerobic_speed ? { v: row.aerobic_speed, pace100: row.aerobic_pace100 } : null,
+            peak: row.peak_speed ? { v: row.peak_speed, pace100: row.peak_pace100 } : null,
             zones: calcLactateZones(row.threshold_speed),
             steps: row.steps
           };
@@ -4023,8 +4034,10 @@ function buildLactateModal() {
         });
       }
       const th = calcLactateThreshold(calcSteps);
+      const aero = calcAerobicThreshold(calcSteps);
+      const peak = calcPeakVelocity(calcSteps);
       const zones = th ? calcLactateZones(th.v) : null;
-      S.lactateResult = { threshold: th, zones: zones, steps: calcSteps };
+      S.lactateResult = { threshold: th, aerobic: aero, peak: peak, zones: zones, steps: calcSteps };
       if (!th) { render(); return; }
       const athleteObj = DATA.athletes.find(function(a){ return a.name === S.lactateModalAthlete; });
       try {
@@ -4034,7 +4047,11 @@ function buildLactateModal() {
           pb100: S.lactatePB || null,
           steps: calcSteps,
           threshold_speed: th.v,
-          threshold_pace100: th.pace100
+          threshold_pace100: th.pace100,
+          aerobic_speed: aero ? aero.v : null,
+          aerobic_pace100: aero ? aero.pace100 : null,
+          peak_speed: peak ? peak.v : null,
+          peak_pace100: peak ? peak.pace100 : null
         });
       } catch (e) { track('api_error', { path: 'lactate_tests', status: 0 }); }
       render();
@@ -4050,10 +4067,17 @@ function buildLactateModal() {
     warn.textContent = 'El lactato nunca cruzó 4.0 mmol/L con estos datos — revisá los valores cargados.';
     card.appendChild(warn);
   } else {
-    const res = document.createElement('div'); res.className = 'card'; res.style.cssText = 'text-align:center;padding:14px';
-    res.innerHTML = '<div style="font-size:0.75rem;color:var(--text2)">UMBRAL (OBLA 4.0 mmol/L)</div>' +
-      '<div style="font-size:1.6rem;font-weight:800;color:#1a4a7a">' + S.lactateResult.threshold.pace100 + ' /100m</div>' +
-      '<div style="font-size:0.75rem;color:var(--text2)">' + S.lactateResult.threshold.v.toFixed(3) + ' m/s</div>';
+    const res = document.createElement('div'); res.className = 'card'; res.style.cssText = 'padding:14px';
+    let rows = '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(100,140,180,0.15)">' +
+      '<span style="font-size:0.78rem;color:var(--text2)">Umbral aeróbico (LT1, 2.0 mmol/L)</span>' +
+      '<strong>' + (S.lactateResult.aerobic ? S.lactateResult.aerobic.pace100 : '—') + '</strong></div>' +
+      '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(100,140,180,0.15)">' +
+      '<span style="font-size:0.78rem;color:#1e8449;font-weight:700">Umbral anaeróbico (OBLA, 4.0 mmol/L)</span>' +
+      '<strong style="color:#1e8449">' + S.lactateResult.threshold.pace100 + '</strong></div>' +
+      '<div style="display:flex;justify-content:space-between;padding:5px 0">' +
+      '<span style="font-size:0.78rem;color:var(--text2)">Velocidad pico del test (no es VO2max)</span>' +
+      '<strong>' + (S.lactateResult.peak ? S.lactateResult.peak.pace100 : '—') + '</strong></div>';
+    res.innerHTML = rows;
     card.appendChild(res);
 
     const zt = document.createElement('table'); zt.style.cssText = 'width:100%;margin-top:12px;font-size:0.78rem;border-collapse:collapse';
@@ -4066,7 +4090,7 @@ function buildLactateModal() {
     });
     zt.appendChild(tb);
     card.appendChild(zt);
-    card.appendChild(buildLactateChart(S.lactateResult.steps, S.lactateResult.threshold));
+    card.appendChild(buildLactateChart(S.lactateResult.steps, S.lactateResult.threshold, S.lactateResult.aerobic));
   }
   const doneBtn = document.createElement('button'); doneBtn.className = 'btn btn-primary'; doneBtn.textContent = 'Listo'; doneBtn.style.marginTop = '14px';
   doneBtn.onclick = closeLactateModal;
@@ -5242,7 +5266,7 @@ function buildAthleteInicio() {
       '<div style="font-size:1.3rem;font-weight:800;color:#1a4a7a;margin-top:4px">' + lt.threshold_pace100 + ' /100m</div>' +
       '<div style="font-size:0.72rem;color:var(--text2)">' + protoLbl + '</div>';
     d.appendChild(card);
-    d.appendChild(buildLactateChart(lt.steps, { v: lt.threshold_speed, pace100: lt.threshold_pace100 }));
+    d.appendChild(buildLactateChart(lt.steps, { v: lt.threshold_speed, pace100: lt.threshold_pace100 }, lt.aerobic_speed ? { v: lt.aerobic_speed, pace100: lt.aerobic_pace100 } : null));
   }
 
   // ── HEADER ──
@@ -5910,35 +5934,81 @@ function buildResultForm(comp) {
 }
 
 // Helper: RPE line chart SVG
-function buildLactateChart(steps, threshold) {
+function buildLactateChart(steps, threshold, aerobic) {
   const pts0 = steps.filter(function(s){ return s.time_s > 0; }).map(function(s){ return { v: s.distance / s.time_s, lac: s.lactate }; });
   if (pts0.length < 2) return document.createElement('div');
-  const W = 320, H = 200, PAD = { top:16, right:16, bottom:28, left:32 };
+  const W = 340, H = 240, PAD = { top:24, right:20, bottom:38, left:38 };
   const iW = W - PAD.left - PAD.right, iH = H - PAD.top - PAD.bottom;
   const vMin = Math.min.apply(null, pts0.map(function(p){return p.v;})), vMax = Math.max.apply(null, pts0.map(function(p){return p.v;}));
-  const lacMax = Math.max(10, Math.max.apply(null, pts0.map(function(p){return p.lac;})) * 1.1);
-  const xPos = v => PAD.left + ((v - vMin) / (vMax - vMin || 1)) * iW;
+  const vSpan = (vMax - vMin) || 1;
+  const lacMax = Math.max(10, Math.max.apply(null, pts0.map(function(p){return p.lac;})) * 1.15);
+  const xPos = v => PAD.left + ((v - vMin) / vSpan) * iW;
   const yPos = l => PAD.top + iH - (l / lacMax) * iH;
-  const pts = pts0.map(function(p){ return { x: xPos(p.v), y: yPos(p.lac), lac: p.lac }; });
-  let path = 'M' + pts[0].x + ' ' + pts[0].y;
-  for (let i = 1; i < pts.length; i++) path += ' L' + pts[i].x + ' ' + pts[i].y;
-  const dots = pts.map(function(p){ return '<circle cx="'+p.x+'" cy="'+p.y+'" r="4" fill="#1a4a7a" stroke="white" stroke-width="2"/>'; }).join('');
-  const yGrid = '<line x1="'+PAD.left+'" y1="'+yPos(4)+'" x2="'+(PAD.left+iW)+'" y2="'+yPos(4)+'" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4,3"/>' +
-    '<text x="'+(PAD.left+iW)+'" y="'+(yPos(4)-4)+'" font-size="9" fill="#c0392b" text-anchor="end" font-weight="700">4.0 mmol/L</text>';
-  let thMark = '';
-  if (threshold) {
-    const tx = xPos(threshold.v);
-    thMark = '<line x1="'+tx+'" y1="'+PAD.top+'" x2="'+tx+'" y2="'+(PAD.top+iH)+'" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="3,3"/>' +
-      '<circle cx="'+tx+'" cy="'+yPos(4)+'" r="5.5" fill="#1e8449" stroke="white" stroke-width="2"/>';
+  const pts = pts0.map(function(p){ return { x: xPos(p.v), y: yPos(p.lac), v: p.v, lac: p.lac }; });
+
+  // Curva suavizada tipo Catmull-Rom -> Bézier cúbica
+  function smoothPath(p) {
+    if (p.length < 3) return 'M' + p[0].x + ' ' + p[0].y + ' L' + p[p.length-1].x + ' ' + p[p.length-1].y;
+    let d = 'M' + p[0].x + ' ' + p[0].y;
+    for (let i = 0; i < p.length - 1; i++) {
+      const p0 = p[i === 0 ? 0 : i-1], p1 = p[i], p2 = p[i+1], p3 = p[i+2 < p.length ? i+2 : i+1];
+      const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+      const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+      d += ' C' + c1x + ' ' + c1y + ', ' + c2x + ' ' + c2y + ', ' + p2.x + ' ' + p2.y;
+    }
+    return d;
   }
-  const yLabels = [0, Math.round(lacMax/2), Math.round(lacMax)].map(function(v){ return '<text x="'+(PAD.left-6)+'" y="'+(yPos(v)+4)+'" font-size="9" fill="#3a5a7a" text-anchor="end">'+v+'</text>'; }).join('');
-  const xLabels = pts0.map(function(p,i){ return '<text x="'+xPos(p.v)+'" y="'+(H-4)+'" font-size="8" fill="#3a5a7a" text-anchor="middle">'+p.v.toFixed(2)+'</text>'; }).join('');
+  const linePath = smoothPath(pts);
+  const areaPath = linePath + ' L' + pts[pts.length-1].x + ' ' + (PAD.top+iH) + ' L' + pts[0].x + ' ' + (PAD.top+iH) + ' Z';
+
+  // Grid horizontal
+  let grid = '';
+  const gridSteps = 4;
+  for (let i = 0; i <= gridSteps; i++) {
+    const l = (lacMax / gridSteps) * i;
+    grid += '<line x1="'+PAD.left+'" y1="'+yPos(l)+'" x2="'+(PAD.left+iW)+'" y2="'+yPos(l)+'" stroke="rgba(100,140,180,0.14)" stroke-width="1"/>';
+  }
+
+  const dots = pts.map(function(p){
+    return '<circle cx="'+p.x+'" cy="'+p.y+'" r="4.5" fill="#ffffff" stroke="#1a6fa8" stroke-width="2.5"/>' +
+      '<text x="'+p.x+'" y="'+(p.y-10)+'" font-size="9.5" font-weight="700" fill="#1a2a3a" text-anchor="middle">'+p.lac.toFixed(1)+'</text>';
+  }).join('');
+
+  const refLine = function(val, color, label) {
+    return '<line x1="'+PAD.left+'" y1="'+yPos(val)+'" x2="'+(PAD.left+iW)+'" y2="'+yPos(val)+'" stroke="'+color+'" stroke-width="1.3" stroke-dasharray="5,4" opacity="0.85"/>' +
+      '<text x="'+(PAD.left+2)+'" y="'+(yPos(val)-4)+'" font-size="9" fill="'+color+'" font-weight="700">'+label+'</text>';
+  };
+  const refLines = refLine(4.0, '#c0392b', '4.0 · OBLA') + refLine(2.0, '#2980b9', '2.0 · LT1');
+
+  function marker(th, color, labelY) {
+    if (!th) return '';
+    const tx = xPos(th.v);
+    return '<line x1="'+tx+'" y1="'+PAD.top+'" x2="'+tx+'" y2="'+(PAD.top+iH)+'" stroke="'+color+'" stroke-width="1.3" stroke-dasharray="2,3" opacity="0.6"/>' +
+      '<circle cx="'+tx+'" cy="'+(PAD.top+iH+3)+'" r="3.5" fill="'+color+'"/>' +
+      '<rect x="'+(tx-24)+'" y="'+labelY+'" width="48" height="15" rx="7" fill="'+color+'"/>' +
+      '<text x="'+tx+'" y="'+(labelY+11)+'" font-size="8.5" font-weight="700" fill="white" text-anchor="middle">'+th.pace100+'</text>';
+  }
+  const markers = marker(threshold, '#1e8449', PAD.top - 22) + marker(aerobic, '#2980b9', PAD.top - 4);
+
+  const xLabels = pts0.map(function(p){ return '<text x="'+xPos(p.v)+'" y="'+(H-6)+'" font-size="8.5" fill="#4a6a8a" text-anchor="middle">'+p.v.toFixed(2)+'</text>'; }).join('');
+  const axisTitle = '<text x="'+(PAD.left+iW/2)+'" y="'+(H+2)+'" font-size="8" fill="#7a9ab8" text-anchor="middle"></text>' +
+    '<text x="4" y="'+(PAD.top+iH/2)+'" font-size="8" fill="#7a9ab8" text-anchor="middle" transform="rotate(-90 4 '+(PAD.top+iH/2)+')">mmol/L</text>';
+
   const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
   svg.setAttribute('viewBox','0 0 '+W+' '+H); svg.setAttribute('width','100%'); svg.setAttribute('height',H);
-  svg.innerHTML = yGrid + yLabels + xLabels + thMark + '<path d="'+path+'" fill="none" stroke="#1a4a7a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' + dots;
+  svg.innerHTML =
+    '<defs><linearGradient id="lacFill" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0%" stop-color="#1a6fa8" stop-opacity="0.28"/><stop offset="100%" stop-color="#1a6fa8" stop-opacity="0"/>' +
+    '</linearGradient></defs>' +
+    grid + refLines +
+    '<path d="'+areaPath+'" fill="url(#lacFill)"/>' +
+    '<path d="'+linePath+'" fill="none" stroke="#1a6fa8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>' +
+    markers + dots + xLabels + axisTitle;
+
   const card = document.createElement('div'); card.className = 'card';
-  card.style.cssText = 'padding:12px 8px;margin-top:12px';
-  const cap = document.createElement('div'); cap.style.cssText = 'font-size:0.68rem;color:var(--text2);text-align:center;margin-bottom:2px'; cap.textContent = 'Velocidad (m/s) → Lactato (mmol/L)';
+  card.style.cssText = 'padding:14px 10px 6px;margin-top:12px;background:linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.55) 100%)';
+  const cap = document.createElement('div'); cap.style.cssText = 'font-size:0.72rem;font-weight:700;color:var(--text2);text-align:center;margin-bottom:4px;letter-spacing:0.5px';
+  cap.textContent = 'CURVA DE LACTATO — velocidad (m/s)';
   card.appendChild(cap); card.appendChild(svg);
   return card;
 }
