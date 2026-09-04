@@ -3876,9 +3876,14 @@ function buildLactateModal() {
       btn.innerHTML = '<strong>' + p.label + '</strong><br><span style="font-size:0.72rem;color:var(--text2)">' + p.help + '</span>';
       btn.onclick = function() {
         S.lactateProtocol = key;
-        const n = p.isBlock ? 3 : p.steps;
-        S.lactateSteps = Array.from({length:n}, function(){ return { time:'', lactate:'', hr:'', strokes:'' }; });
-        if (p.isBlock) { S.lactateBasal = ''; S.lactatePost3 = ''; }
+        if (p.isBlock) {
+          S.lactateSteps = Array.from({length:3}, function(){
+            return { times: Array(8).fill(''), strokes6: '', strokes7: '', lactate: '' };
+          });
+          S.lactateBasal = ''; S.lactatePost3 = '';
+        } else {
+          S.lactateSteps = Array.from({length:p.steps}, function(){ return { time:'', lactate:'', hr:'', strokes:'' }; });
+        }
         render();
       };
       card.appendChild(btn);
@@ -3921,6 +3926,34 @@ function buildLactateModal() {
       const lbl = document.createElement('div'); lbl.style.cssText = 'font-weight:700;font-size:0.85rem;margin-bottom:6px';
       lbl.textContent = proto.isBlock ? ('Bloque ' + (i+1) + ' (8×100)') : ('Escalón ' + (i+1) + ' — ' + proto.distance + 'm');
       wrap.appendChild(lbl);
+
+      if (proto.isBlock) {
+        // 8 tiempos individuales, con brazadas solo en las reps 6 y 7
+        step.times.forEach(function(_, repIdx) {
+          const repRow = document.createElement('div'); repRow.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:4px';
+          const repLbl = document.createElement('span'); repLbl.style.cssText = 'width:22px;font-size:0.72rem;color:var(--text2)'; repLbl.textContent = (repIdx+1) + '.';
+          repRow.appendChild(repLbl);
+          const tIn = document.createElement('input'); tIn.type = 'text'; tIn.placeholder = 'mm:ss'; tIn.style.cssText = 'flex:1;min-width:70px';
+          tIn.value = step.times[repIdx];
+          tIn.oninput = function(e){ step.times[repIdx] = e.target.value; };
+          repRow.appendChild(tIn);
+          if (repIdx === 5 || repIdx === 6) { // reps 6 y 7 (0-index 5,6)
+            const key = repIdx === 5 ? 'strokes6' : 'strokes7';
+            const sIn = document.createElement('input'); sIn.type = 'number'; sIn.placeholder = 'Brazadas'; sIn.style.cssText = 'width:80px';
+            sIn.value = step[key];
+            sIn.oninput = function(e){ step[key] = e.target.value; };
+            repRow.appendChild(sIn);
+          }
+          wrap.appendChild(repRow);
+        });
+        const lacIn = document.createElement('input'); lacIn.type = 'number'; lacIn.step = '0.1'; lacIn.placeholder = 'Lactato del bloque (mmol/L)'; lacIn.style.cssText = 'width:100%;margin-top:6px';
+        lacIn.value = step.lactate;
+        lacIn.oninput = function(e){ step.lactate = e.target.value; };
+        wrap.appendChild(lacIn);
+        card.appendChild(wrap);
+        return;
+      }
+
       const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
       [['time','Tiempo (mm:ss)','text'],['lactate','Lactato (mmol/L)','number'],['hr','Pulso','number'],['strokes','Brazadas','number']].forEach(function(f) {
         const inp = document.createElement('input');
@@ -3944,12 +3977,13 @@ function buildLactateModal() {
     saveBtn.onclick = async function() {
       let calcSteps;
       if (proto.isBlock) {
+        // 3 puntos de intensidad reales; tiempo del bloque = suma de las 8 marcas reales
         calcSteps = S.lactateSteps.map(function(step, i) {
           const distTotal = 800;
-          const t = timeStrToSeconds(step.time) * 8;
+          const t = step.times.reduce(function(sum, ts){ return sum + timeStrToSeconds(ts); }, 0);
           let lac = parseFloat(step.lactate) || 0;
           if (i === S.lactateSteps.length - 1 && S.lactatePost3) lac = Math.max(lac, parseFloat(S.lactatePost3));
-          return { distance: distTotal, time_s: t, lactate: lac };
+          return { distance: distTotal, time_s: t, lactate: lac, strokes_rep6: step.strokes6 || null, strokes_rep7: step.strokes7 || null };
         });
       } else {
         calcSteps = S.lactateSteps.map(function(step) {
