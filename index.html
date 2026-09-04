@@ -2277,7 +2277,7 @@ async function dbGetLactateTests(athleteId) {
 }
 
 async function dbGetMyLactateTests() {
-  return sbFetch('lactate_tests?order=date.desc&limit=5', { method: 'GET' });
+  return sbFetch('lactate_tests?order=date.desc&limit=20', { method: 'GET' });
 }
 
 async function dbSaveBodyweight(athleteId, weight) {
@@ -5253,21 +5253,25 @@ function buildAthleteInicio() {
   }
   const hist = DATA.athleteHist[S.athleteName] || [];
 
-  // ── Último test de lactato ──
+  // ── Último test de lactato (destacado 7 días, luego pasa al historial) ──
   if (!DATA.athleteLactate) {
     DATA.athleteLactate = null;
     dbGetMyLactateTests().then(function(rows) { DATA.athleteLactate = rows || []; render(); }).catch(function(){ DATA.athleteLactate = []; });
   } else if (DATA.athleteLactate.length > 0) {
     const lt = DATA.athleteLactate[0];
-    const protoLbl = (LACTATE_PROTOCOLS[lt.protocol] || {}).label || lt.protocol;
-    const card = document.createElement('div'); card.className = 'card';
-    card.style.cssText = 'padding:14px 16px;margin-bottom:14px';
-    card.innerHTML = '<div style="font-size:0.68rem;color:#4a6a8a;letter-spacing:1px;font-weight:700;text-transform:uppercase">🩸 último test de lactato — ' + formatDateLabel(lt.date) + '</div>' +
-      '<div style="font-size:1.3rem;font-weight:800;color:#1a4a7a;margin-top:4px">' + lt.threshold_pace100 + ' /100m</div>' +
-      '<div style="font-size:0.72rem;color:var(--text2)">' + protoLbl + '</div>';
-    d.appendChild(card);
-    d.appendChild(buildLactateChart(lt.steps, { v: lt.threshold_speed, pace100: lt.threshold_pace100 }, lt.aerobic_speed ? { v: lt.aerobic_speed, pace100: lt.aerobic_pace100 } : null));
+    const daysSince = (today - new Date(lt.date + 'T00:00:00')) / 86400000;
+    if (daysSince <= 7) {
+      const protoLbl = (LACTATE_PROTOCOLS[lt.protocol] || {}).label || lt.protocol;
+      const card = document.createElement('div'); card.className = 'card';
+      card.style.cssText = 'padding:14px 16px;margin-bottom:14px';
+      card.innerHTML = '<div style="font-size:0.68rem;color:#4a6a8a;letter-spacing:1px;font-weight:700;text-transform:uppercase">🩸 último test de lactato — ' + formatDateLabel(lt.date) + '</div>' +
+        '<div style="font-size:1.3rem;font-weight:800;color:#1a4a7a;margin-top:4px">' + lt.threshold_pace100 + ' /100m</div>' +
+        '<div style="font-size:0.72rem;color:var(--text2)">' + protoLbl + '</div>';
+      d.appendChild(card);
+      d.appendChild(buildLactateChart(lt.steps, { v: lt.threshold_speed, pace100: lt.threshold_pace100 }, lt.aerobic_speed ? { v: lt.aerobic_speed, pace100: lt.aerobic_pace100 } : null));
+    }
   }
+
 
   // ── HEADER ──
   const initials = S.athleteName.split(' ').map(w=>w[0]).slice(0,2).join('');
@@ -5498,6 +5502,24 @@ function buildAthleteInicio() {
   const stRitmo = document.createElement('div'); stRitmo.className = 'section-title'; stRitmo.style.marginTop='16px'; stRitmo.textContent = 'CALCULADORA DE RITMOS';
   d.appendChild(stRitmo);
   d.appendChild(buildRitmoCalc(S.ritmoMB));
+
+  // ── Historial de lactato (colapsado, en segundo plano) ──
+  if (DATA.athleteLactate && DATA.athleteLactate.length > 0) {
+    const det = document.createElement('details'); det.style.cssText = 'margin-top:20px';
+    const sum = document.createElement('summary'); sum.style.cssText = 'font-size:0.78rem;font-weight:700;color:var(--text2);cursor:pointer;padding:8px 0';
+    sum.textContent = '🩸 Historial de tests de lactato (' + DATA.athleteLactate.length + ')';
+    det.appendChild(sum);
+    DATA.athleteLactate.forEach(function(row) {
+      const rowDet = document.createElement('details'); rowDet.style.cssText = 'margin-top:8px;border-top:1px solid rgba(100,140,180,0.15);padding-top:8px';
+      const rowSum = document.createElement('summary'); rowSum.style.cssText = 'font-size:0.8rem;cursor:pointer;display:flex;justify-content:space-between';
+      const p = LACTATE_PROTOCOLS[row.protocol] || {};
+      rowSum.innerHTML = '<span>' + formatDateLabel(row.date) + ' · ' + (p.label || row.protocol) + '</span><strong>' + row.threshold_pace100 + '</strong>';
+      rowDet.appendChild(rowSum);
+      rowDet.appendChild(buildLactateChart(row.steps, { v: row.threshold_speed, pace100: row.threshold_pace100 }, row.aerobic_speed ? { v: row.aerobic_speed, pace100: row.aerobic_pace100 } : null));
+      det.appendChild(rowDet);
+    });
+    d.appendChild(det);
+  }
 
   return d;
 }
