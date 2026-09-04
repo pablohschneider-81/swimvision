@@ -1138,7 +1138,7 @@ async function dbSaveSession(date, slot, sessObj) {
       pullText: sessObj.pullText || '', pushText: sessObj.pushText || '', lowerText: sessObj.lowerText || ''
     }
   };
-  const res = await sbFetch('sessions?on_conflict=date,slot', {
+  const res = await sbFetch('sessions?on_conflict=coach_id,date,slot', {
     method: 'POST',
     prefer: 'resolution=merge-duplicates,return=representation',
     body: JSON.stringify(body)
@@ -2187,6 +2187,86 @@ async function dbLoadCoachStrength() {
   DATA.coachStrBw = bw;
 }
 
+// ============================================================
+// TEST DE LACTATO PROGRESIVO — protocolos, motor de cálculo y guardado.
+// Umbral: OBLA fijo a 4.0 mmol/L, interpolación lineal entre escalones.
+// Zonas Z1-Z4: % de la velocidad umbral (modelo ICAR/Olbrecht, Vorontsov).
+// Fuentes: Maglischo "Swimming Fastest" (2003) cap.3; Mujika et al. 2001.
+// ============================================================
+const LACTATE_PROTOCOLS = {
+  '7x200': {
+    label: '7×200 (fondo/media distancia)',
+    steps: 7, distance: 200,
+    help: 'Salida cíclica cada 5:00. Muestra de lactato al final de cada 200.'
+  },
+  '4x400': {
+    label: '4×400 (fondistas)',
+    steps: 4, distance: 400,
+    help: 'Incremento progresivo de velocidad, ~30s descanso entre repeticiones.'
+  },
+  '8x100_pb': {
+    label: '8×100 escalonado (necesita PB en 100)',
+    steps: 8, distance: 100, needsPB: true,
+    help: 'Intensidad definida como segundos por debajo del PB de cada nadador (Maglischo).'
+  },
+  '3x8x100': {
+    label: '3×8×100 propio (24/26/28 pulso)',
+    steps: 3, distance: 800, isBlock: true,
+    help: '3 bloques de 8×100. Lactato: basal + al final de cada bloque + a los 3\' post-esfuerzo (5-6 tomas). Resolución menor que 7x200/4x400 (solo 3 puntos de intensidad reales).'
+  }
+};
+
+function paceFromSpeed(v) {
+  if (!v || v <= 0) return '--:--';
+  const secPer100 = 100 / v;
+  const m = Math.floor(secPer100 / 60);
+  const s = (secPer100 - m * 60).toFixed(2);
+  return m + ':' + (s < 10 ? '0' : '') + s;
+}
+
+function calcLactateThreshold(steps) {
+  // steps: [{distance, time_s, lactate}, ...] de menor a mayor intensidad
+  const pts = steps.filter(function(s){ return s.time_s > 0 && s.lactate != null; })
+                   .map(function(s) { return { v: s.distance / s.time_s, lac: s.lactate }; });
+  const TARGET = 4.0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i+1];
+    if (a.lac <= TARGET && b.lac >= TARGET && b.lac !== a.lac) {
+      const frac = (TARGET - a.lac) / (b.lac - a.lac);
+      const vT = a.v + frac * (b.v - a.v);
+      return { v: vT, pace100: paceFromSpeed(vT) };
+    }
+  }
+  return null; // nunca cruza 4.0 mmol/L — test insuficiente o muy fácil
+}
+
+function calcLactateZones(vThreshold) {
+  const ranges = [
+    { zona: 'Z1 · Recuperación',   max: 0.80, objetivo: 'Recuperación activa' },
+    { zona: 'Z2 · Base aeróbica',  min: 0.90, max: 1.00, objetivo: 'Base oxidativa' },
+    { zona: 'Z3 · Umbral (EN1)',   min: 1.00, max: 1.03, objetivo: 'Máximo estado estable' },
+    { zona: 'Z4 · VO2max (EN2)',   min: 1.04, max: 1.07, objetivo: 'Potencia aeróbica máxima' }
+  ];
+  return ranges.map(function(r) {
+    return {
+      zona: r.zona, objetivo: r.objetivo,
+      ritmo_rapido: paceFromSpeed(vThreshold * r.max),
+      ritmo_lento: r.min ? paceFromSpeed(vThreshold * r.min) : null
+    };
+  });
+}
+
+async function dbSaveLactateTest(payload) {
+  return sbFetch('lactate_tests', {
+    method: 'POST', prefer: 'return=representation',
+    body: JSON.stringify(payload)
+  });
+}
+
+async function dbGetLactateTests(athleteId) {
+  return sbFetch('lactate_tests?athlete_id=eq.' + athleteId + '&order=date.desc', { method: 'GET' });
+}
+
 async function dbSaveBodyweight(athleteId, weight) {
   const res = await sbFetch('bodyweight_entries?on_conflict=athlete_id,date', {
     method: 'POST', prefer: 'resolution=merge-duplicates,return=representation',
@@ -2776,7 +2856,7 @@ function buildPin() {
     const googleBtn = document.createElement('button');
     googleBtn.type = 'button';
     googleBtn.className = 'btn btn-secondary';
-    googleBtn.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;margin-top:14px;box-shadow:0 14px 30px rgba(60,110,160,0.32), inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -10px 14px rgba(120,170,210,0.18);';
+    googleBtn.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;margin-top:14px;box-shadow:0 14px 30px rgba(60,110,160,0.32), inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -10px 14px rgba(120,170,210,0.18);user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;';
     googleBtn.innerHTML =
       '<svg width="18" height="18" viewBox="0 0 48 48" style="flex-shrink:0;">' +
       '<path fill="#FFC107" d="M43.6 20.5h-1.9V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6.1 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/>' +
@@ -2784,6 +2864,7 @@ function buildPin() {
       '<path fill="#4CAF50" d="M24 44c5.4 0 10.3-2.1 14-5.5l-6.5-5.4C29.5 34.9 26.9 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.6 5C9.6 39.6 16.3 44 24 44z"/>' +
       '<path fill="#1976D2" d="M43.6 20.5H24v8h11.3c-.8 2.3-2.3 4.3-4.2 5.6l6.5 5.4C41.4 36.6 44 30.9 44 24c0-1.3-.1-2.7-.4-3.5z"/>' +
       '</svg> Registrarme con Google';
+    googleBtn.ontouchstart = function(){};
     googleBtn.onclick = () => {
       window.location.href = SUPABASE_URL + '/auth/v1/authorize?provider=google&redirect_to=' + encodeURIComponent(window.location.origin + window.location.pathname);
     };
@@ -3605,7 +3686,7 @@ function buildCoachRPE() {
   d.appendChild(st);
 
   const tbl = document.createElement('table'); tbl.className = 'rpe-table';
-  tbl.innerHTML = '<thead><tr><th>Atleta</th><th>RPE</th><th>Estado</th><th>Δ</th><th></th></tr></thead>';
+  tbl.innerHTML = '<thead><tr><th>Atleta</th><th>RPE</th><th>Estado</th><th>Δ</th><th></th><th></th></tr></thead>';
   const tbody = document.createElement('tbody');
   athletes.forEach(name => {
     const entry = dayRPE[name];
@@ -3633,9 +3714,10 @@ function buildCoachRPE() {
         <td><span class="fatigue-label" style="background:${fat.color}22;color:${fat.color}">${fat.label}</span></td>
         <td><span class="delta ${dClass}">${deltaStr}</span></td>
         <td><button class="comment-btn" data-ath="${escapeHtml(name)}">${getComments()[today+'_'+name] ? '💬' : '✏️'}</button></td>
+        <td><button class="comment-btn" data-lactate-ath="${escapeHtml(name)}" title="Test de lactato">🩸</button></td>
       `;
     } else {
-      tr.innerHTML = '<td>' + escapeHtml(nameShort) + '</td><td colspan="2" style="color:var(--text2);font-size:0.8rem">Sin respuesta</td><td></td><td><button class="comment-btn" data-ath="' + escapeHtml(name) + '">✏️</button></td>';
+      tr.innerHTML = '<td>' + escapeHtml(nameShort) + '</td><td colspan="2" style="color:var(--text2);font-size:0.8rem">Sin respuesta</td><td></td><td><button class="comment-btn" data-ath="' + escapeHtml(name) + '">✏️</button></td><td><button class="comment-btn" data-lactate-ath="' + escapeHtml(name) + '" title="Test de lactato">🩸</button></td>';
     }
     tbody.appendChild(tr);
   });
@@ -3644,6 +3726,8 @@ function buildCoachRPE() {
 
   // Comment buttons - use event delegation to avoid timing issues
   d.addEventListener('click', function(e) {
+    const lacBtn = e.target.closest('[data-lactate-ath]');
+    if (lacBtn) { S.lactateModalAthlete = lacBtn.dataset.lactateAth; render(); return; }
     const btn = e.target.closest('.comment-btn');
     if (!btn) return;
     S.commentAthlete = btn.dataset.ath;
@@ -3749,7 +3833,179 @@ function buildCoachRPE() {
     render();
   });
 
+  if (S.lactateModalAthlete) d.appendChild(buildLactateModal());
+
   return d;
+}
+
+function timeStrToSeconds(str) {
+  if (!str) return 0;
+  const parts = String(str).split(':');
+  if (parts.length === 2) return (parseInt(parts[0],10)||0) * 60 + (parseFloat(parts[1])||0);
+  return parseFloat(str) || 0;
+}
+
+function closeLactateModal() {
+  S.lactateModalAthlete = null; S.lactateProtocol = null; S.lactateSteps = null;
+  S.lactatePB = null; S.lactateResult = null;
+  render();
+}
+
+function buildLactateModal() {
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed; inset:0; z-index:60; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(26,42,58,0.5); backdrop-filter:blur(4px); overflow-y:auto;';
+  const card = document.createElement('div');
+  card.className = 'login-card';
+  card.style.cssText += 'max-width:420px; width:100%; margin:auto; text-align:left; max-height:88vh; overflow-y:auto;';
+
+  const h3 = document.createElement('h2'); h3.style.cssText = 'text-align:center';
+  h3.textContent = '🩸 Test de lactato — ' + S.lactateModalAthlete.split(' ')[0];
+  card.appendChild(h3);
+
+  const closeX = document.createElement('button');
+  closeX.textContent = '✕ Cerrar'; closeX.className = 'btn btn-secondary'; closeX.style.marginBottom = '14px';
+  closeX.onclick = closeLactateModal;
+  card.appendChild(closeX);
+
+  // ── Paso 1: elegir protocolo ──
+  if (!S.lactateProtocol) {
+    Object.keys(LACTATE_PROTOCOLS).forEach(function(key) {
+      const p = LACTATE_PROTOCOLS[key];
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-secondary'; btn.style.cssText = 'margin-bottom:10px;text-align:left;display:block';
+      btn.innerHTML = '<strong>' + p.label + '</strong><br><span style="font-size:0.72rem;color:var(--text2)">' + p.help + '</span>';
+      btn.onclick = function() {
+        S.lactateProtocol = key;
+        const n = p.isBlock ? 3 : p.steps;
+        S.lactateSteps = Array.from({length:n}, function(){ return { time:'', lactate:'', hr:'', strokes:'' }; });
+        if (p.isBlock) { S.lactateBasal = ''; S.lactatePost3 = ''; }
+        render();
+      };
+      card.appendChild(btn);
+    });
+    ov.appendChild(card);
+    return ov;
+  }
+
+  const proto = LACTATE_PROTOCOLS[S.lactateProtocol];
+
+  // ── PB si hace falta ──
+  if (proto.needsPB && !S.lactatePB) {
+    const lbl = document.createElement('label'); lbl.className = 'field-label'; lbl.textContent = 'PB en 100m de ' + S.lactateModalAthlete.split(' ')[0] + ' (mm:ss.d)';
+    card.appendChild(lbl);
+    const pbIn = document.createElement('input'); pbIn.type = 'text'; pbIn.placeholder = '1:02.50';
+    pbIn.oninput = function(e) { S._pbTemp = e.target.value; };
+    card.appendChild(pbIn);
+    const okBtn = document.createElement('button'); okBtn.className = 'btn btn-primary'; okBtn.textContent = 'Continuar'; okBtn.style.marginTop = '10px';
+    okBtn.onclick = function() {
+      const s = timeStrToSeconds(S._pbTemp);
+      if (!s) { alert('Ingresá el PB en formato mm:ss'); return; }
+      S.lactatePB = s; render();
+    };
+    card.appendChild(okBtn);
+    ov.appendChild(card);
+    return ov;
+  }
+
+  // ── Paso 2: carga de escalones ──
+  if (!S.lactateResult) {
+    if (proto.isBlock) {
+      const lblB = document.createElement('label'); lblB.className = 'field-label'; lblB.textContent = 'Lactato basal (mmol/L)';
+      card.appendChild(lblB);
+      const inB = document.createElement('input'); inB.type = 'number'; inB.step = '0.1'; inB.value = S.lactateBasal || '';
+      inB.oninput = function(e){ S.lactateBasal = e.target.value; };
+      card.appendChild(inB);
+    }
+    S.lactateSteps.forEach(function(step, i) {
+      const wrap = document.createElement('div'); wrap.style.cssText = 'border-top:1px solid rgba(100,140,180,0.15);padding-top:10px;margin-top:10px';
+      const lbl = document.createElement('div'); lbl.style.cssText = 'font-weight:700;font-size:0.85rem;margin-bottom:6px';
+      lbl.textContent = proto.isBlock ? ('Bloque ' + (i+1) + ' (8×100)') : ('Escalón ' + (i+1) + ' — ' + proto.distance + 'm');
+      wrap.appendChild(lbl);
+      const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
+      [['time','Tiempo (mm:ss)','text'],['lactate','Lactato (mmol/L)','number'],['hr','Pulso','number'],['strokes','Brazadas','number']].forEach(function(f) {
+        const inp = document.createElement('input');
+        inp.type = f[2]; inp.placeholder = f[1]; inp.style.cssText = 'flex:1;min-width:80px';
+        inp.value = step[f[0]];
+        inp.oninput = function(e){ step[f[0]] = e.target.value; };
+        row.appendChild(inp);
+      });
+      wrap.appendChild(row);
+      card.appendChild(wrap);
+    });
+    if (proto.isBlock) {
+      const lblP = document.createElement('label'); lblP.className = 'field-label'; lblP.style.marginTop = '10px'; lblP.textContent = "Lactato a los 3' post-esfuerzo (mmol/L)";
+      card.appendChild(lblP);
+      const inP = document.createElement('input'); inP.type = 'number'; inP.step = '0.1'; inP.value = S.lactatePost3 || '';
+      inP.oninput = function(e){ S.lactatePost3 = e.target.value; };
+      card.appendChild(inP);
+    }
+
+    const saveBtn = document.createElement('button'); saveBtn.className = 'btn btn-primary'; saveBtn.textContent = 'Calcular y guardar'; saveBtn.style.marginTop = '14px';
+    saveBtn.onclick = async function() {
+      let calcSteps;
+      if (proto.isBlock) {
+        calcSteps = S.lactateSteps.map(function(step, i) {
+          const distTotal = 800;
+          const t = timeStrToSeconds(step.time) * 8;
+          let lac = parseFloat(step.lactate) || 0;
+          if (i === S.lactateSteps.length - 1 && S.lactatePost3) lac = Math.max(lac, parseFloat(S.lactatePost3));
+          return { distance: distTotal, time_s: t, lactate: lac };
+        });
+      } else {
+        calcSteps = S.lactateSteps.map(function(step) {
+          return { distance: proto.distance, time_s: timeStrToSeconds(step.time), lactate: parseFloat(step.lactate) || 0 };
+        });
+      }
+      const th = calcLactateThreshold(calcSteps);
+      const zones = th ? calcLactateZones(th.v) : null;
+      S.lactateResult = { threshold: th, zones: zones };
+      if (!th) { render(); return; }
+      const athleteObj = DATA.athletes.find(function(a){ return a.name === S.lactateModalAthlete; });
+      try {
+        await dbSaveLactateTest({
+          athlete_id: athleteObj.id,
+          protocol: S.lactateProtocol,
+          pb100: S.lactatePB || null,
+          steps: calcSteps,
+          threshold_speed: th.v,
+          threshold_pace100: th.pace100
+        });
+      } catch (e) { track('api_error', { path: 'lactate_tests', status: 0 }); }
+      render();
+    };
+    card.appendChild(saveBtn);
+    ov.appendChild(card);
+    return ov;
+  }
+
+  // ── Paso 3: resultado ──
+  if (!S.lactateResult.threshold) {
+    const warn = document.createElement('div'); warn.style.cssText = 'color:#c0392b;font-weight:700;padding:10px 0';
+    warn.textContent = 'El lactato nunca cruzó 4.0 mmol/L con estos datos — revisá los valores cargados.';
+    card.appendChild(warn);
+  } else {
+    const res = document.createElement('div'); res.className = 'card'; res.style.cssText = 'text-align:center;padding:14px';
+    res.innerHTML = '<div style="font-size:0.75rem;color:var(--text2)">UMBRAL (OBLA 4.0 mmol/L)</div>' +
+      '<div style="font-size:1.6rem;font-weight:800;color:#1a4a7a">' + S.lactateResult.threshold.pace100 + ' /100m</div>' +
+      '<div style="font-size:0.75rem;color:var(--text2)">' + S.lactateResult.threshold.v.toFixed(3) + ' m/s</div>';
+    card.appendChild(res);
+
+    const zt = document.createElement('table'); zt.style.cssText = 'width:100%;margin-top:12px;font-size:0.78rem;border-collapse:collapse';
+    zt.innerHTML = '<thead><tr><th style="text-align:left">Zona</th><th>Ritmo/100m</th></tr></thead>';
+    const tb = document.createElement('tbody');
+    S.lactateResult.zones.forEach(function(z) {
+      const tr = document.createElement('tr'); tr.style.borderTop = '1px solid rgba(100,140,180,0.15)';
+      tr.innerHTML = '<td style="padding:6px 0">' + z.zona + '</td><td style="text-align:center;font-weight:700">' + (z.ritmo_lento ? z.ritmo_lento + ' – ' : '≥ ') + z.ritmo_rapido + '</td>';
+      tb.appendChild(tr);
+    });
+    zt.appendChild(tb);
+    card.appendChild(zt);
+  }
+  const doneBtn = document.createElement('button'); doneBtn.className = 'btn btn-primary'; doneBtn.textContent = 'Listo'; doneBtn.style.marginTop = '14px';
+  doneBtn.onclick = closeLactateModal;
+  card.appendChild(doneBtn);
+  ov.appendChild(card);
+  return ov;
 }
 
 function buildCoachSquad() {
