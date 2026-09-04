@@ -5242,6 +5242,7 @@ function buildAthleteInicio() {
       '<div style="font-size:1.3rem;font-weight:800;color:#1a4a7a;margin-top:4px">' + lt.threshold_pace100 + ' /100m</div>' +
       '<div style="font-size:0.72rem;color:var(--text2)">' + protoLbl + '</div>';
     d.appendChild(card);
+    d.appendChild(buildLactateChart(lt.steps, { v: lt.threshold_speed, pace100: lt.threshold_pace100 }));
   }
 
   // ── HEADER ──
