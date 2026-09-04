@@ -3886,8 +3886,17 @@ function buildLactateModal() {
       card.appendChild(histSt);
       histRows.forEach(function(row) {
         const p = LACTATE_PROTOCOLS[row.protocol] || {};
-        const hr = document.createElement('div'); hr.style.cssText = 'display:flex;justify-content:space-between;font-size:0.78rem;padding:6px 0;border-bottom:1px solid rgba(100,140,180,0.12)';
-        hr.innerHTML = '<span>' + formatDateLabel(row.date) + ' · ' + (p.label || row.protocol) + '</span><strong>' + row.threshold_pace100 + '</strong>';
+        const hr = document.createElement('div'); hr.style.cssText = 'display:flex;justify-content:space-between;font-size:0.78rem;padding:6px 0;border-bottom:1px solid rgba(100,140,180,0.12);cursor:pointer';
+        hr.innerHTML = '<span>' + formatDateLabel(row.date) + ' · ' + (p.label || row.protocol) + '</span><strong>' + row.threshold_pace100 + ' →</strong>';
+        hr.onclick = function() {
+          S.lactateProtocol = row.protocol;
+          S.lactateResult = {
+            threshold: { v: row.threshold_speed, pace100: row.threshold_pace100 },
+            zones: calcLactateZones(row.threshold_speed),
+            steps: row.steps
+          };
+          render();
+        };
         card.appendChild(hr);
       });
       const spacer = document.createElement('div'); spacer.style.height = '10px'; card.appendChild(spacer);
@@ -4015,7 +4024,7 @@ function buildLactateModal() {
       }
       const th = calcLactateThreshold(calcSteps);
       const zones = th ? calcLactateZones(th.v) : null;
-      S.lactateResult = { threshold: th, zones: zones };
+      S.lactateResult = { threshold: th, zones: zones, steps: calcSteps };
       if (!th) { render(); return; }
       const athleteObj = DATA.athletes.find(function(a){ return a.name === S.lactateModalAthlete; });
       try {
@@ -4057,6 +4066,7 @@ function buildLactateModal() {
     });
     zt.appendChild(tb);
     card.appendChild(zt);
+    card.appendChild(buildLactateChart(S.lactateResult.steps, S.lactateResult.threshold));
   }
   const doneBtn = document.createElement('button'); doneBtn.className = 'btn btn-primary'; doneBtn.textContent = 'Listo'; doneBtn.style.marginTop = '14px';
   doneBtn.onclick = closeLactateModal;
@@ -5899,6 +5909,39 @@ function buildResultForm(comp) {
 }
 
 // Helper: RPE line chart SVG
+function buildLactateChart(steps, threshold) {
+  const pts0 = steps.filter(function(s){ return s.time_s > 0; }).map(function(s){ return { v: s.distance / s.time_s, lac: s.lactate }; });
+  if (pts0.length < 2) return document.createElement('div');
+  const W = 320, H = 200, PAD = { top:16, right:16, bottom:28, left:32 };
+  const iW = W - PAD.left - PAD.right, iH = H - PAD.top - PAD.bottom;
+  const vMin = Math.min.apply(null, pts0.map(function(p){return p.v;})), vMax = Math.max.apply(null, pts0.map(function(p){return p.v;}));
+  const lacMax = Math.max(10, Math.max.apply(null, pts0.map(function(p){return p.lac;})) * 1.1);
+  const xPos = v => PAD.left + ((v - vMin) / (vMax - vMin || 1)) * iW;
+  const yPos = l => PAD.top + iH - (l / lacMax) * iH;
+  const pts = pts0.map(function(p){ return { x: xPos(p.v), y: yPos(p.lac), lac: p.lac }; });
+  let path = 'M' + pts[0].x + ' ' + pts[0].y;
+  for (let i = 1; i < pts.length; i++) path += ' L' + pts[i].x + ' ' + pts[i].y;
+  const dots = pts.map(function(p){ return '<circle cx="'+p.x+'" cy="'+p.y+'" r="4" fill="#1a4a7a" stroke="white" stroke-width="2"/>'; }).join('');
+  const yGrid = '<line x1="'+PAD.left+'" y1="'+yPos(4)+'" x2="'+(PAD.left+iW)+'" y2="'+yPos(4)+'" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="4,3"/>' +
+    '<text x="'+(PAD.left+iW)+'" y="'+(yPos(4)-4)+'" font-size="9" fill="#c0392b" text-anchor="end" font-weight="700">4.0 mmol/L</text>';
+  let thMark = '';
+  if (threshold) {
+    const tx = xPos(threshold.v);
+    thMark = '<line x1="'+tx+'" y1="'+PAD.top+'" x2="'+tx+'" y2="'+(PAD.top+iH)+'" stroke="#1e8449" stroke-width="1.5" stroke-dasharray="3,3"/>' +
+      '<circle cx="'+tx+'" cy="'+yPos(4)+'" r="5.5" fill="#1e8449" stroke="white" stroke-width="2"/>';
+  }
+  const yLabels = [0, Math.round(lacMax/2), Math.round(lacMax)].map(function(v){ return '<text x="'+(PAD.left-6)+'" y="'+(yPos(v)+4)+'" font-size="9" fill="#3a5a7a" text-anchor="end">'+v+'</text>'; }).join('');
+  const xLabels = pts0.map(function(p,i){ return '<text x="'+xPos(p.v)+'" y="'+(H-4)+'" font-size="8" fill="#3a5a7a" text-anchor="middle">'+p.v.toFixed(2)+'</text>'; }).join('');
+  const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('viewBox','0 0 '+W+' '+H); svg.setAttribute('width','100%'); svg.setAttribute('height',H);
+  svg.innerHTML = yGrid + yLabels + xLabels + thMark + '<path d="'+path+'" fill="none" stroke="#1a4a7a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' + dots;
+  const card = document.createElement('div'); card.className = 'card';
+  card.style.cssText = 'padding:12px 8px;margin-top:12px';
+  const cap = document.createElement('div'); cap.style.cssText = 'font-size:0.68rem;color:var(--text2);text-align:center;margin-bottom:2px'; cap.textContent = 'Velocidad (m/s) → Lactato (mmol/L)';
+  card.appendChild(cap); card.appendChild(svg);
+  return card;
+}
+
 function buildRPEChart(last14) {
   const W = 320, H = 160, PAD = { top:16, right:16, bottom:28, left:28 };
   const iW = W - PAD.left - PAD.right, iH = H - PAD.top - PAD.bottom;
