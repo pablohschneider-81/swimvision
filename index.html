@@ -2582,6 +2582,7 @@ function render() {
   if (S.role === 'coach_pending') { trackScreen('coach_pending'); app.appendChild(buildCoachPending()); return; }
 
   app.appendChild(buildHeader());
+  if (S.showChangelog) app.appendChild(buildChangelogPanel());
   const content = document.createElement('div');
   content.className = 'content';
 
@@ -3322,6 +3323,21 @@ async function openCoachAdminModal() {
   loadList();
 }
 
+// ============================================================
+// NOVEDADES — aviso chico y descartable, no bloqueante.
+// Cada dispositivo recuerda en localStorage cuál fue la última que vio.
+// ============================================================
+const CHANGELOG = [
+  { v: 6, date: '2026-09-04', text: '🩸 Nuevo: test de lactato progresivo (curva, umbrales, zonas) — se hace desde el botón 🩸 en la fila de cada atleta en RPE.' },
+  { v: 4, date: '2026-08-31', text: 'Nuevo: login con Google en la pantalla de crear cuenta de entrenador.' }
+];
+function getLastSeenChangelog() {
+  try { return parseInt(localStorage.getItem('ondrift_changelog_seen') || '0', 10); } catch (e) { return 0; }
+}
+function setLastSeenChangelog(v) {
+  try { localStorage.setItem('ondrift_changelog_seen', String(v)); } catch (e) {}
+}
+
 function buildHeader() {
   const h = document.createElement('div');
   h.className = 'header';
@@ -3339,12 +3355,41 @@ function buildHeader() {
   const right = document.createElement('div');
   right.style.cssText = 'display:flex; gap:8px; align-items:center;';
 
+  const lastSeen = getLastSeenChangelog();
+  const latestV = CHANGELOG[0].v;
+  if (latestV > lastSeen) {
+    const newsBtn = document.createElement('button');
+    newsBtn.style.cssText = 'position:relative;background:none;border:none;font-size:1.1rem;cursor:pointer;padding:4px';
+    newsBtn.innerHTML = '🆕<span style="position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:var(--red)"></span>';
+    newsBtn.onclick = function() { S.showChangelog = true; render(); };
+    right.appendChild(newsBtn);
+  }
+
   const btn = document.createElement('button');
   btn.className = 'btn-exit'; btn.textContent = 'Salir';
   btn.onclick = () => { resetSession(); render(); };
   right.appendChild(btn);
   h.appendChild(right);
   return h;
+}
+
+function buildChangelogPanel() {
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed; inset:0; z-index:55; display:flex; align-items:flex-start; justify-content:center; padding:60px 16px 16px; background:rgba(26,42,58,0.35);';
+  const card = document.createElement('div'); card.className = 'card';
+  card.style.cssText = 'max-width:380px; width:100%; padding:16px;';
+  const h4 = document.createElement('div'); h4.style.cssText = 'font-weight:800;margin-bottom:10px'; h4.textContent = '🆕 Novedades';
+  card.appendChild(h4);
+  CHANGELOG.forEach(function(c) {
+    const row = document.createElement('div'); row.style.cssText = 'padding:8px 0;border-top:1px solid rgba(100,140,180,0.15);font-size:0.82rem';
+    row.innerHTML = '<div style="color:var(--text2);font-size:0.68rem">' + formatDateLabel(c.date) + '</div><div>' + c.text + '</div>';
+    card.appendChild(row);
+  });
+  const okBtn = document.createElement('button'); okBtn.className = 'btn btn-primary'; okBtn.textContent = 'Entendido'; okBtn.style.marginTop = '12px';
+  okBtn.onclick = function() { setLastSeenChangelog(CHANGELOG[0].v); S.showChangelog = false; render(); };
+  card.appendChild(okBtn);
+  ov.appendChild(card);
+  return ov;
 }
 
 // ============================================================
