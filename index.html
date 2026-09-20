@@ -880,12 +880,31 @@ const TEST_DEFINITIONS = [
       warning: "Detén la prueba si sientes dolor, inestabilidad al aterrizar o mareo.",
     },
   },
+  {
+    id: "salto_unipodal", name: "Salto unipodal (L/D)", domain: "power",
+    description: "Comparación de la altura de salto entre ambas piernas mediante salto unipodal con contramovimiento, con cámara real.",
+    status: "available", captureType: "real_camera",
+    views: ["lateral"], futureAnalyzer: "analyzeSingleLegJump",
+    protocol: {
+      intro: "Un salto con cada pierna: despegue y aterrizaje con la misma pierna, la otra permanece flexionada y elevada todo el tiempo. No se graba ni se sube ningún vídeo.",
+      instructions: [
+        "Colócate de perfil a la cámara, de cuerpo completo.",
+        "Apóyate sobre la pierna derecha; flexiona la rodilla izquierda y mantenla elevada.",
+        "Salta verticalmente con la pierna derecha y aterriza con la misma pierna.",
+        "Repite el proceso apoyándote sobre la pierna izquierda.",
+        "Un salto por pierna.",
+      ],
+      preparation: MOBILE_PREP_DEFAULT,
+      warning: "El salto unipodal exige más equilibrio y control que el bipodal. Detén la prueba si sientes dolor o inestabilidad al aterrizar.",
+    },
+  },
 ];
 
 const POSTURA_TEST = TEST_DEFINITIONS.find((t) => t.id === "postura_estatica");
 const SENTADILLA_TEST = TEST_DEFINITIONS.find((t) => t.id === "sentadilla");
 const STS_TEST = TEST_DEFINITIONS.find((t) => t.id === "sit_to_stand");
 const CMJ_TEST = TEST_DEFINITIONS.find((t) => t.id === "cmj");
+const SLJ_TEST = TEST_DEFINITIONS.find((t) => t.id === "salto_unipodal");
 const EQUILIBRIO_TEST = TEST_DEFINITIONS.find((t) => t.id === "equilibrio_unipodal");
 const ARM_TEST = TEST_DEFINITIONS.find((t) => t.id === "elevacion_brazos");
 const TRUNK_TEST = TEST_DEFINITIONS.find((t) => t.id === "rotacion_tronco");
@@ -982,6 +1001,9 @@ const MEASUREMENT_LABELS = {
   cmj_jump_height_best: "Mejor salto",
   cmj_jump_height_mean: "Altura media",
   cmj_height_consistency: "Consistencia entre saltos",
+  single_leg_jump_height_right: "Salto pierna derecha",
+  single_leg_jump_height_left: "Salto pierna izquierda",
+  single_leg_asymmetry_index: "Asimetría entre piernas",
 };
 
 // Vacío a propósito: rangos de referencia solo cuando se incorporen
@@ -1543,11 +1565,12 @@ function calculateSitToStandConsistency(reps) {
 const CMJ_THRESHOLDS = {
   stabilityFrames: 8,            // reutiliza el mismo criterio de "quieto" que STS
   stabilityEpsilon: 0.004,
-  descentRiseRatio: 0.05,        // cuánto debe descender la cadera (fracción de imagen) para considerar iniciado el contramovimiento
-  takeoffAnkleRiseRatio: 0.035,  // cuánto deben "subir" los tobillos (y decrece) respecto al suelo para considerar despegue
+  descentRiseRatio: 0.025,       // cuánto debe descender la cadera (fracción de imagen) para considerar iniciado el contramovimiento — bajado tras prueba real (el 0.05 original casi nunca disparaba)
+  takeoffAnkleRiseRatio: 0.02,   // cuánto deben "subir" los tobillos (y decrece) respecto al suelo para considerar despegue — mismo motivo
   maxPhaseDurationMs: 4000,      // si DESCENDING o AIRBORNE se alargan más de esto sin completar → salto inválido
   maxCriticalLostFrames: 6,      // frames consecutivos sin cuerpo válido durante DESCENDING/AIRBORNE → salto inválido
   jumpsRequired: 3,
+  maxStandingWaitMs: 15000,      // si no se detecta contramovimiento en este tiempo, avisar en vez de esperar en silencio para siempre
 };
 
 // STANDING → DESCENDING: la cadera desciende (y aumenta) desde el
@@ -1601,6 +1624,44 @@ function calculateCmjConsistency(jumps) {
   const standardDeviation = +Math.sqrt(variance).toFixed(3);
   const coefficientOfVariation = mean !== 0 ? +((standardDeviation / mean) * 100).toFixed(1) : null;
   return { mean, standardDeviation, coefficientOfVariation };
+}
+
+/* ============================================================
+   SALTO UNIPODAL — comparación de altura entre piernas
+   ============================================================
+   Reutiliza la máquina de detección del CMJ (detectCmjDescentStart/
+   detectCmjTakeoff/detectCmjLanding, calculateCmjJumpHeight) sin
+   duplicarla: la única diferencia real es que, en vez de promediar
+   ambos tobillos, se seguía el tobillo de la pierna de apoyo. */
+
+// Determina qué tobillo es el de apoyo (el más bajo = más cerca del
+// suelo) en el instante en que se confirma la postura unipodal — NO
+// depende de la etiqueta izquierda/derecha de MediaPipe, que no es
+// fiable para esto en vista lateral (ambas piernas se solapan en la
+// proyección 2D). Funciona igual sea cual sea la pierna elevada.
+function detectStanceAnkleIndex(landmarks) {
+  const l = landmarks[POSE_LANDMARK_INDEX.leftAnkle];
+  const r = landmarks[POSE_LANDMARK_INDEX.rightAnkle];
+  if (!l || !r) return null;
+  return l.y > r.y ? POSE_LANDMARK_INDEX.leftAnkle : POSE_LANDMARK_INDEX.rightAnkle;
+}
+
+function stanceAnkleY(landmarks, ankleIndex) {
+  if (ankleIndex == null) return null;
+  const p = landmarks[ankleIndex];
+  return p ? p.y : null;
+}
+
+// Índice de asimetría entre piernas — |dcha - izda| / max(dcha, izda) ×
+// 100. 0% = simétrico; cuanto mayor, mayor el déficit del lado más
+// débil respecto al más fuerte. Mismo concepto que un Limb Symmetry
+// Index invertido (déficit en vez de simetría), habitual en literatura
+// de retorno al deporte.
+function calculateLimbAsymmetryIndex(heightRight, heightLeft) {
+  if (heightRight == null || heightLeft == null) return null;
+  const max = Math.max(heightRight, heightLeft);
+  if (max === 0) return 0;
+  return +((Math.abs(heightRight - heightLeft) / max) * 100).toFixed(1);
 }
 
 // overallCaptureQuality: media ponderada explícita de las variables
@@ -1696,7 +1757,7 @@ function aggregateRepCaptureQualities(validReps) {
 // Un único ScientificMeasurement — misma forma que antes, ahora
 // parametrizada por variable/valor/unidad para poder construir las 3
 // mediciones que pide este ticket sin repetir el objeto entero.
-function buildSitToStandMeasurement({ assessmentId, testId, key, variable, value, unit, quality }) {
+function buildSitToStandMeasurement({ assessmentId, testId, key, variable, value, unit, quality, side = "bilateral" }) {
   return {
     id: `${assessmentId}_${key}`,
     assessmentId,
@@ -1704,7 +1765,7 @@ function buildSitToStandMeasurement({ assessmentId, testId, key, variable, value
     variable,
     value,
     unit,
-    side: "bilateral",
+    side,
     timestamp: new Date().toISOString(),
     source: "camera",
     method: "markerless_pose_estimation",
@@ -1765,6 +1826,35 @@ function analyzeDemoCmj() {
     cmjJumpHeightBest: { variable: "cmj_jump_height_best", value: best, unit: "cm", quality: null },
     cmjJumpHeightMean: { variable: "cmj_jump_height_mean", value: mean, unit: "cm", quality: null },
     cmjHeightConsistency: { variable: "cmj_height_consistency", value: consistency.coefficientOfVariation, unit: "%", quality: null },
+  };
+}
+
+// Las 3 ScientificMeasurement del salto unipodal — reutiliza
+// buildSitToStandMeasurement (genérico), ahora con `side` para
+// distinguir la pierna derecha de la izquierda.
+function createSingleLegJumpScientificMeasurements({ assessmentId, testId, heightRight, heightLeft, aggQuality }) {
+  const asymmetry = calculateLimbAsymmetryIndex(heightRight, heightLeft);
+  return [
+    buildSitToStandMeasurement({ assessmentId, testId, key: "single_leg_jump_height_right", variable: "single_leg_jump_height_right", value: heightRight, unit: "cm", quality: aggQuality, side: "right" }),
+    buildSitToStandMeasurement({ assessmentId, testId, key: "single_leg_jump_height_left", variable: "single_leg_jump_height_left", value: heightLeft, unit: "cm", quality: aggQuality, side: "left" }),
+    buildSitToStandMeasurement({ assessmentId, testId, key: "single_leg_asymmetry_index", variable: "single_leg_asymmetry_index", value: asymmetry, unit: "%", quality: aggQuality, side: "bilateral" }),
+  ];
+}
+
+// Respaldo DEMO si la cámara falla — mismo criterio que CMJ: tiempos de
+// vuelo plausibles por la fórmula real, con una asimetría simulada
+// pequeña entre piernas (más realista que dos valores idénticos).
+function analyzeDemoSingleLegJump() {
+  const jitter = (base, spread) => +(base + (Math.random() - 0.5) * spread).toFixed(3);
+  const flightTimeRight = jitter(0.38, 0.05);
+  const flightTimeLeft = jitter(0.36, 0.05); // ligera asimetría deliberada, no un espejo exacto del derecho
+  const heightRight = calculateCmjJumpHeight(flightTimeRight);
+  const heightLeft = calculateCmjJumpHeight(flightTimeLeft);
+  const asymmetry = calculateLimbAsymmetryIndex(heightRight, heightLeft);
+  return {
+    heightRight: { variable: "single_leg_jump_height_right", value: heightRight, unit: "cm", side: "right", quality: null },
+    heightLeft: { variable: "single_leg_jump_height_left", value: heightLeft, unit: "cm", side: "left", quality: null },
+    asymmetry: { variable: "single_leg_asymmetry_index", value: asymmetry, unit: "%", side: "bilateral", quality: null },
   };
 }
 
@@ -4175,7 +4265,15 @@ function Evaluacion({ setView, addAssessment, activeAssessment = null }) {
           />
         )}
 
-        {step.id === "prueba" && selectedTest && selectedTest.id !== "sit_to_stand" && selectedTest.id !== "cmj" && (
+        {step.id === "prueba" && selectedTest && selectedTest.id === "salto_unipodal" && (
+          <RealSingleLegJumpFlow
+            onSave={addAssessment}
+            onContinue={() => setSelectedTest(null)}
+            onAbort={() => setView("dashboard")}
+          />
+        )}
+
+        {step.id === "prueba" && selectedTest && !["sit_to_stand", "cmj", "salto_unipodal"].includes(selectedTest.id) && (
           <AssessmentFlow
             test={selectedTest}
             ResultsComponent={TEST_RESULTS_COMPONENTS[selectedTest.id]}
@@ -7422,6 +7520,8 @@ function RealCmjFlow({ onSave, onContinue, onAbort }) {
         phaseStartRef.current = now;
         transitionsRef.current.push({ stage: "DESCENDING", t: now });
         setJumpProgress((p) => ({ ...p, stage: "DESCENDING" }));
+      } else if (now - phaseStartRef.current > CMJ_THRESHOLDS.maxStandingWaitMs) {
+        failJump("No se detectó el inicio del salto. Colócate de perfil, cuerpo completo, y flexiona bien las rodillas antes de saltar.");
       }
     } else if (stage === "DESCENDING") {
       if (detectCmjTakeoff(historyRef.current, standingAnkleYRef.current)) {
@@ -7657,6 +7757,601 @@ function RealCmjFlow({ onSave, onContinue, onAbort }) {
 
       {phase === "completed" && result && (
         <CmjResult assessment={result} onSave={handleSave} saved={saved} onContinue={onContinue} />
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   COMPONENTES DE CAPTURA REAL — Salto unipodal (comparación L/D)
+   ============================================================
+   Tercera prueba con captura real. Reutiliza la máquina de detección
+   del CMJ tal cual (detectCmjDescentStart/detectCmjTakeoff/
+   detectCmjLanding/calculateCmjJumpHeight) — la única diferencia es
+   qué tobillo se seguía (el de apoyo, no el promedio de ambos) y que
+   hay dos fases "prepárate" con confirmación manual: el atleta debe
+   estar YA equilibrado sobre una pierna, con la otra flexionada, antes
+   de que se fije el tobillo de referencia — si no, detectStanceAnkleIndex
+   podría fijar el tobillo equivocado por un simple apoyo bipodal momentáneo. */
+
+const SLJ_SIDES = ["right", "left"];
+const SLJ_SIDE_LABELS = { right: "pierna derecha", left: "pierna izquierda" };
+
+function SingleLegJumpResult({ assessment, onSave, saved, onContinue }) {
+  const byVar = (variable) => assessment.measurements.find((m) => m.variable === variable);
+  const rightM = byVar("single_leg_jump_height_right");
+  const leftM = byVar("single_leg_jump_height_left");
+  const asymmetryM = byVar("single_leg_asymmetry_index");
+  const isDemo = assessment.measurements.some((m) => m.isDemo);
+  const q = assessment.captureQuality || {};
+  const date = new Date(assessment.timestamp).toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" });
+  const strongerSide = (rightM?.value ?? 0) >= (leftM?.value ?? 0) ? "derecha" : "izquierda";
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl p-5" style={{ background: C.ink }}>
+        <div style={{ ...fontBody, color: "#9AA5AC", fontSize: 12 }}>{SLJ_TEST.name}</div>
+        <div style={{ ...fontDisplay, color: "#fff", fontSize: 16, fontWeight: 600 }} className="mt-1">Asimetría entre piernas</div>
+        <div className="mt-2"><DataValue value={asymmetryM?.value ?? "—"} unit={asymmetryM?.value != null ? "%" : ""} size={32} color="#fff" /></div>
+        <div style={{ ...fontBody, color: "#9AA5AC", fontSize: 12 }} className="mt-2">{date} · lado más fuerte: {strongerSide}</div>
+      </div>
+
+      {isDemo && <DemoTag label="Resultado de demostración" />}
+
+      <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+        <div style={{ ...fontDisplay, color: C.text, fontSize: 14, fontWeight: 600 }} className="mb-3">Altura por pierna</div>
+        <CompareBar label="Salto unipodal" right={rightM?.value ?? 0} left={leftM?.value ?? 0} unit="cm" />
+      </div>
+
+      <div className="rounded-2xl p-4 space-y-2" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+        <div className="flex items-center justify-between">
+          <span style={{ ...fontBody, color: C.inkSoft, fontSize: 12.5 }}>Medición mediante cámara</span>
+        </div>
+        {!isDemo && (
+          <>
+            <div className="flex items-center justify-between">
+              <span style={{ ...fontBody, color: C.inkSoft, fontSize: 12.5 }}>Calidad de captura</span>
+              <span style={{ ...fontBody, color: C.text, fontSize: 12.5 }}>
+                {q.overall != null ? `${Math.round(q.overall * 100)}%` : "No disponible"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span style={{ ...fontBody, color: C.inkSoft, fontSize: 12.5 }}>Frames perdidos</span>
+              <span style={{ ...fontBody, color: C.text, fontSize: 12.5 }}>{q.lostFrames ?? "—"}</span>
+            </div>
+          </>
+        )}
+        <div className="flex items-center justify-between">
+          <span style={{ ...fontBody, color: C.inkSoft, fontSize: 12.5 }}>Estado</span>
+          <span style={{ ...fontMono, color: getValidationStatusStyle(rightM?.validationStatus || (isDemo ? "DEMO" : "RESEARCH")).color, fontSize: 11, fontWeight: 600 }} className="uppercase tracking-wide">
+            {isDemo ? "Demostración" : "Investigación"}
+          </span>
+        </div>
+        {!isDemo && (
+          <div className="flex items-center justify-between">
+            <span style={{ ...fontBody, color: C.inkSoft, fontSize: 12.5 }}>Error propio de Kinesis</span>
+            <span style={{ ...fontBody, color: C.inkFaint, fontSize: 12.5 }}>Todavía no establecido</span>
+          </div>
+        )}
+      </div>
+
+      <MeasurementEvidenceCard
+        measurement={asymmetryM}
+        validationProfile={{ variable: asymmetryM?.variable, validationStatus: asymmetryM?.validationStatus }}
+        references={[]}
+        explanation="Cada pierna se mide por separado con el mismo método de tiempo de vuelo que el CMJ bipodal, siguiendo el tobillo de la pierna de apoyo. La asimetría es |derecha − izquierda| / la mayor de las dos × 100 — 0% sería simetría perfecta."
+      />
+
+      <p style={{ ...fontBody, color: C.inkFaint, fontSize: 11.5, lineHeight: 1.6 }} className="px-1">
+        Esta medición no está clínicamente validada.
+      </p>
+
+      {!saved ? (
+        <button onClick={onSave} className="w-full rounded-xl py-3.5" style={{ background: C.teal }}>
+          <span style={{ ...fontBody, color: "#04150D", fontSize: 14, fontWeight: 700 }}>Guardar evaluación</span>
+        </button>
+      ) : (
+        <>
+          <div className="w-full rounded-xl py-3 flex items-center justify-center gap-2" style={{ background: C.tealSoft }}>
+            <Check size={16} color={C.teal} />
+            <span style={{ ...fontBody, color: C.teal, fontSize: 14, fontWeight: 600 }}>Evaluación guardada</span>
+          </div>
+          <button onClick={onContinue} className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5" style={{ background: C.ink }}>
+            <span style={{ ...fontBody, color: "#fff", fontSize: 14, fontWeight: 600 }}>Continuar</span>
+            <ChevronRight size={16} color="#fff" />
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function RealSingleLegJumpFlow({ onSave, onContinue, onAbort }) {
+  const [phase, setPhase] = useState("instructions");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [bodyStatus, setBodyStatus] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [result, setResult] = useState(null);
+  const [saved, setSaved] = useState(false);
+  const [jumpProgress, setJumpProgress] = useState({ stage: "STANDING", invalid: false, reason: null });
+  const [completedSides, setCompletedSides] = useState([]);
+  const [cameraFacingMode] = useState("user");
+
+  const videoRef = useRef(null);
+  const landmarksRef = useRef(null);
+  const landmarkerRef = useRef(null);
+  const rafRef = useRef(null);
+  const phaseRef = useRef(phase);
+  const historyRef = useRef([]);
+  const qualitySamplesRef = useRef([]);
+  const frameCountersRef = useRef({ total: 0, valid: 0, lost: 0 });
+  const cameraJitterRef = useRef([]);
+  const prevShoulderMidRef = useRef(null);
+  const sendingRef = useRef(false);
+  const stageRef = useRef("STANDING");
+  const stableSearchCountRef = useRef(0);
+  const lastUiUpdateRef = useRef(0);
+  const sideIndexRef = useRef(0);
+  const validJumpsRef = useRef([]);
+  const currentJumpRef = useRef({ side: "right", descentStartTime: null, takeoffTime: null, landingTime: null });
+  const standingHipYRef = useRef(null);
+  const standingAnkleYRef = useRef(null);
+  const stanceAnkleIndexRef = useRef(null);
+  const criticalLostStreakRef = useRef(0);
+  const phaseStartRef = useRef(null);
+  const transitionsRef = useRef([]);
+  const testStartTimeRef = useRef(null);
+  const testEndTimeRef = useRef(null);
+  const readyTimeoutRef = useRef(null);
+  const unmountedRef = useRef(false);
+
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+
+  const cleanupLoop = () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+  };
+  useEffect(() => () => {
+    unmountedRef.current = true;
+    cleanupLoop();
+    clearTimeout(readyTimeoutRef.current);
+  }, []);
+
+  const goToDemo = (message) => {
+    cleanupLoop();
+    if (message) setErrorMessage(message);
+    setPhase("error");
+  };
+
+  const applyDemoResult = () => {
+    cleanupLoop();
+    const assessmentId = `assessment_${Date.now()}`;
+    const raw = analyzeDemoSingleLegJump();
+    const measurements = buildMeasurements({ assessmentId, testId: SLJ_TEST.id, raw, source: "camera", isDemo: true });
+    const assessment = {
+      id: assessmentId, testId: SLJ_TEST.id, timestamp: new Date().toISOString(), status: "completed",
+      captures: [], reps: null, captureQuality: null, measurements,
+    };
+    setResult(assessment);
+    setPhase("completed");
+  };
+
+  // Fija el tobillo de apoyo (detectStanceAnkleIndex) en este instante —
+  // el atleta debe estar YA equilibrado sobre una pierna al llamarse esto,
+  // por eso solo se invoca desde confirmReady(), tras una pantalla de
+  // confirmación manual, nunca automáticamente al terminar el salto anterior.
+  const resetSideAttempt = (startTimestamp) => {
+    const lm = landmarksRef.current;
+    const side = SLJ_SIDES[sideIndexRef.current];
+    stageRef.current = "STANDING";
+    currentJumpRef.current = { side, descentStartTime: null, takeoffTime: null, landingTime: null };
+    const hy = lm ? hipY(lm) : null;
+    const stanceIdx = lm ? detectStanceAnkleIndex(lm) : null;
+    stanceAnkleIndexRef.current = stanceIdx;
+    const ay = lm && stanceIdx != null ? stanceAnkleY(lm, stanceIdx) : null;
+    historyRef.current = [{ t: startTimestamp, hipY: hy, ankleY: ay }];
+    standingHipYRef.current = hy;
+    standingAnkleYRef.current = ay;
+    qualitySamplesRef.current = [];
+    frameCountersRef.current = { total: 0, valid: 0, lost: 0 };
+    criticalLostStreakRef.current = 0;
+    phaseStartRef.current = startTimestamp;
+    transitionsRef.current = [];
+    setJumpProgress({ stage: "STANDING", invalid: false, reason: null });
+  };
+
+  const failJump = (reason) => {
+    stageRef.current = "INVALID";
+    setJumpProgress((p) => ({ ...p, invalid: true, reason }));
+  };
+
+  const retryCurrentJump = () => {
+    resetSideAttempt(performance.now());
+    setPhase("recording");
+  };
+
+  const finalizeSideJump = (landingTime) => {
+    const ev = currentJumpRef.current;
+    const captureQuality = buildCaptureQuality({
+      samples: qualitySamplesRef.current,
+      frameCounters: frameCountersRef.current,
+      cameraJitter: cameraJitterRef.current,
+    });
+    const flightTime = calculateSitToStandDuration(ev.takeoffTime, landingTime);
+    const jump = {
+      side: ev.side,
+      descentStartTime: ev.descentStartTime,
+      takeoffTime: ev.takeoffTime,
+      landingTime,
+      flightTime,
+      jumpHeight: calculateCmjJumpHeight(flightTime),
+      quality: captureQuality.overall,
+      valid: true,
+      invalidReason: null,
+      captureQuality,
+      measurementQuality: captureQuality.modelConfidence,
+      stateTransitions: transitionsRef.current,
+    };
+    validJumpsRef.current = [...validJumpsRef.current, jump];
+    setCompletedSides(validJumpsRef.current);
+
+    if (sideIndexRef.current >= SLJ_SIDES.length - 1) {
+      cleanupLoop();
+      testEndTimeRef.current = landingTime;
+      const jumps = validJumpsRef.current;
+      const heightRight = jumps.find((j) => j.side === "right")?.jumpHeight ?? null;
+      const heightLeft = jumps.find((j) => j.side === "left")?.jumpHeight ?? null;
+      const aggQuality = aggregateRepCaptureQualities(jumps);
+      const assessmentId = `assessment_${Date.now()}`;
+      const measurements = createSingleLegJumpScientificMeasurements({ assessmentId, testId: SLJ_TEST.id, heightRight, heightLeft, aggQuality });
+      const assessment = {
+        id: assessmentId, testId: SLJ_TEST.id, timestamp: new Date().toISOString(), status: "completed",
+        captures: [], reps: jumps, captureQuality: aggQuality, measurements,
+      };
+      setResult(assessment);
+      setPhase("completed");
+      return;
+    }
+
+    sideIndexRef.current += 1;
+    setPhase("switch_side"); // confirmación manual antes de fijar el tobillo de la otra pierna
+  };
+
+  const STILL_PHASES = ["body_searching", "body_detected", "ready_to_start"];
+  const CRITICAL_STAGES = ["DESCENDING", "AIRBORNE"];
+
+  const processFrame = (lm) => {
+    const currentPhase = phaseRef.current;
+    const now = performance.now();
+    landmarksRef.current = lm;
+
+    const status = detectBody(lm);
+    const framing = lm ? computeFramingQuality(lm) : null;
+    const stage = stageRef.current;
+
+    if (currentPhase === "recording" && stage !== "INVALID") {
+      frameCountersRef.current.total += 1;
+      const isValidFrame = status.detected && status.bodyFullyVisible;
+      if (isValidFrame) {
+        frameCountersRef.current.valid += 1;
+        criticalLostStreakRef.current = 0;
+      } else {
+        frameCountersRef.current.lost += 1;
+        if (CRITICAL_STAGES.includes(stage)) {
+          criticalLostStreakRef.current += 1;
+          if (criticalLostStreakRef.current >= CMJ_THRESHOLDS.maxCriticalLostFrames) {
+            failJump("Cuerpo no detectado durante el salto");
+          }
+        }
+      }
+
+      qualitySamplesRef.current.push({ ...status, framing });
+      if (qualitySamplesRef.current.length > 600) qualitySamplesRef.current.shift();
+
+      if (lm) {
+        // A diferencia del CMJ bipodal: se sigue el tobillo de APOYO
+        // específico (stanceAnkleIndexRef), no el promedio de ambos —
+        // el otro tobillo está deliberadamente elevado todo el salto.
+        historyRef.current.push({ t: now, hipY: hipY(lm), ankleY: stanceAnkleY(lm, stanceAnkleIndexRef.current) });
+        if (historyRef.current.length > 300) historyRef.current.shift();
+      }
+    }
+
+    if (lm && STILL_PHASES.includes(currentPhase)) {
+      const mid = shoulderMid(lm);
+      const prevMid = prevShoulderMidRef.current;
+      if (mid && prevMid) {
+        const dx = mid.x - prevMid.x, dy = mid.y - prevMid.y;
+        cameraJitterRef.current.push(Math.sqrt(dx * dx + dy * dy));
+        if (cameraJitterRef.current.length > 90) cameraJitterRef.current.shift();
+      }
+      prevShoulderMidRef.current = mid;
+    } else if (!lm) {
+      prevShoulderMidRef.current = null;
+    }
+
+    if (now - lastUiUpdateRef.current > 200) {
+      lastUiUpdateRef.current = now;
+      setBodyStatus({ ...status, framing });
+      if (currentPhase === "recording" && currentJumpRef.current.descentStartTime != null) {
+        setElapsed(+((now - currentJumpRef.current.descentStartTime) / 1000).toFixed(1));
+      } else if (currentPhase === "recording") {
+        setElapsed(0);
+      }
+    }
+
+    if (currentPhase === "body_searching") {
+      stableSearchCountRef.current = status.bodyFullyVisible && status.detected ? stableSearchCountRef.current + 1 : 0;
+      if (stableSearchCountRef.current >= CMJ_THRESHOLDS.stabilityFrames) {
+        setPhase("body_detected");
+      }
+      return;
+    }
+
+    if (currentPhase !== "recording" || stage === "INVALID" || !lm) return;
+
+    if (stage === "STANDING") {
+      if (detectCmjDescentStart(historyRef.current, standingHipYRef.current)) {
+        stageRef.current = "DESCENDING";
+        currentJumpRef.current.descentStartTime = now;
+        phaseStartRef.current = now;
+        transitionsRef.current.push({ stage: "DESCENDING", t: now });
+        setJumpProgress((p) => ({ ...p, stage: "DESCENDING" }));
+      } else if (now - phaseStartRef.current > CMJ_THRESHOLDS.maxStandingWaitMs) {
+        failJump("No se detectó el inicio del salto. Asegúrate de estar en apoyo unipodal antes de saltar.");
+      }
+    } else if (stage === "DESCENDING") {
+      if (detectCmjTakeoff(historyRef.current, standingAnkleYRef.current)) {
+        stageRef.current = "AIRBORNE";
+        currentJumpRef.current.takeoffTime = now;
+        phaseStartRef.current = now;
+        transitionsRef.current.push({ stage: "AIRBORNE", t: now });
+        setJumpProgress((p) => ({ ...p, stage: "AIRBORNE" }));
+      } else if (now - phaseStartRef.current > CMJ_THRESHOLDS.maxPhaseDurationMs) {
+        failJump("Despegue no detectado");
+      }
+    } else if (stage === "AIRBORNE") {
+      if (detectCmjLanding(historyRef.current, standingAnkleYRef.current)) {
+        stageRef.current = "STANDING";
+        transitionsRef.current.push({ stage: "LANDED", t: now });
+        finalizeSideJump(now);
+      } else if (now - phaseStartRef.current > CMJ_THRESHOLDS.maxPhaseDurationMs) {
+        failJump("Aterrizaje no detectado");
+      }
+    }
+  };
+
+  const runDetectionLoop = () => {
+    const pose = landmarkerRef.current;
+    if (!pose) return;
+    pose.onResults((results) => processFrame(results?.poseLandmarks || null));
+
+    const pushFrame = async () => {
+      if (rafRef.current === null) return;
+      const video = videoRef.current;
+      const currentPhase = phaseRef.current;
+      if (video && video.readyState >= 2 && currentPhase !== "completed" && currentPhase !== "error" && !sendingRef.current) {
+        sendingRef.current = true;
+        try {
+          await pose.send({ image: video });
+        } catch {
+          processFrame(null);
+        } finally {
+          sendingRef.current = false;
+        }
+      }
+      if (rafRef.current !== null) rafRef.current = requestAnimationFrame(pushFrame);
+    };
+    rafRef.current = requestAnimationFrame(pushFrame);
+  };
+
+  const beginCapture = async () => {
+    setPhase("camera_permission");
+    try {
+      const pose = await loadPoseModel();
+      landmarkerRef.current = pose;
+    } catch (err) {
+      console.error("Fallo al cargar el motor de pose:", err);
+      const detail = err?.message ? ` (${err.message})` : "";
+      goToDemo(`No se pudo cargar el motor de detección de pose${detail}. Puedes usar la demostración.`);
+    }
+  };
+
+  const onCameraReady = () => {
+    if (phaseRef.current === "error" || unmountedRef.current) return;
+    setPhase("camera_ready");
+    readyTimeoutRef.current = setTimeout(() => {
+      if (unmountedRef.current || phaseRef.current === "error") return;
+      setPhase("body_searching");
+      stableSearchCountRef.current = 0;
+      runDetectionLoop();
+    }, 200);
+  };
+
+  const onCameraError = (err) => {
+    const detail = err?.message ? ` (${err.message})` : "";
+    goToDemo(`No se pudo acceder a la cámara${detail}. Comprueba los permisos o usa la demostración.`);
+  };
+
+  useEffect(() => {
+    if (phase !== "body_detected") return undefined;
+    const t = setTimeout(() => setPhase("ready_to_start"), 500);
+    return () => clearTimeout(t);
+  }, [phase]);
+
+  // Primera pierna: tras pulsar INICIAR, pasa por "get_ready" (confirmación
+  // manual) antes de fijar el tobillo de referencia — no automáticamente.
+  const handleStart = () => {
+    testStartTimeRef.current = performance.now();
+    testEndTimeRef.current = null;
+    sideIndexRef.current = 0;
+    validJumpsRef.current = [];
+    setCompletedSides([]);
+    setPhase("get_ready");
+  };
+
+  // Usado tanto desde "get_ready" (primera pierna) como desde
+  // "switch_side" (segunda pierna) — mismo botón, mismo criterio.
+  const confirmReady = () => {
+    const now = performance.now();
+    resetSideAttempt(now);
+    setElapsed(0);
+    setPhase("recording");
+  };
+
+  const handleSave = () => {
+    onSave(result);
+    setSaved(true);
+  };
+
+  const showCamera = ["camera_ready", "body_searching", "body_detected", "ready_to_start", "get_ready", "switch_side", "recording"].includes(phase);
+  const currentSideLabel = SLJ_SIDE_LABELS[SLJ_SIDES[sideIndexRef.current]] || "";
+
+  return (
+    <div className="space-y-4">
+      {phase !== "completed" && (
+        <div className="flex items-center justify-between">
+          <button onClick={onAbort} className="flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+            <ChevronLeft size={15} color={C.inkSoft} />
+            <span style={{ ...fontBody, color: C.inkSoft, fontSize: 12.5 }}>Abandonar</span>
+          </button>
+          <button onClick={applyDemoResult} className="rounded-full px-3 py-1.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+            <span style={{ ...fontBody, color: C.inkSoft, fontSize: 12.5, fontWeight: 600 }}>Usar demostración</span>
+          </button>
+        </div>
+      )}
+
+      {phase === "instructions" && (
+        <div className="space-y-3">
+          <div className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+            <div style={{ ...fontDisplay, color: C.text, fontSize: 16, fontWeight: 600 }}>{SLJ_TEST.name} — captura real</div>
+            <div className="rounded-lg p-3 mt-3 flex items-start gap-2" style={{ background: C.paper }}>
+              <Info size={15} color={C.inkSoft} className="mt-0.5 shrink-0" />
+              <span style={{ ...fontBody, color: C.inkSoft, fontSize: 12.5, lineHeight: 1.5 }}>
+                Un salto por pierna — despegue y aterrizaje con la misma. No se graba ni se sube ningún vídeo.
+              </span>
+            </div>
+            <ul className="space-y-2 mt-3">
+              {SLJ_TEST.protocol.instructions.map((t) => (
+                <li key={t} className="flex items-start gap-2">
+                  <Check size={14} color={C.teal} className="mt-0.5 shrink-0" />
+                  <span style={{ ...fontBody, color: C.inkSoft, fontSize: 13.5 }}>{t}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <button onClick={beginCapture} className="w-full flex items-center justify-center gap-2 rounded-xl py-3.5" style={{ background: C.teal }}>
+            <span style={{ ...fontBody, color: "#04150D", fontSize: 14, fontWeight: 700 }}>Activar cámara</span>
+            <ChevronRight size={16} color="#04150D" />
+          </button>
+        </div>
+      )}
+
+      {phase === "camera_permission" && !showCamera && (
+        <div className="rounded-2xl p-8 flex flex-col items-center gap-3" style={{ background: C.ink }}>
+          <Loader2 size={24} className="animate-spin" color={C.teal} />
+          <span style={{ ...fontBody, color: "#fff", fontSize: 14 }}>Solicitando acceso a la cámara…</span>
+        </div>
+      )}
+
+      {(phase === "camera_permission" || showCamera) && (
+        <div
+          className="relative rounded-2xl overflow-hidden"
+          style={{ aspectRatio: "4/5", background: C.ink, display: phase === "camera_permission" && !showCamera ? "none" : "block" }}
+        >
+          <RealCameraCapture videoRef={videoRef} active={true} onReady={onCameraReady} onError={onCameraError} facingMode={cameraFacingMode} />
+          <PoseDetectionOverlay landmarksRef={landmarksRef} />
+
+          <div className="absolute inset-x-0 top-0 p-3 flex justify-between items-start">
+            <span style={{ ...fontMono, color: "#fff", fontSize: 10, background: "rgba(0,0,0,0.4)" }} className="px-2 py-1 rounded uppercase tracking-wide">
+              {phase.replace(/_/g, " ")}
+            </span>
+          </div>
+
+          <div className="absolute inset-x-0 bottom-0 p-4 flex flex-col items-center gap-2" style={{ background: "linear-gradient(transparent, rgba(0,0,0,0.55))" }}>
+            {phase === "camera_ready" && (
+              <span style={{ ...fontBody, color: "#fff", fontSize: 13 }}>Colócate de perfil, cuerpo completo</span>
+            )}
+            {phase === "body_searching" && (
+              <span style={{ ...fontBody, color: "#fff", fontSize: 13 }} className="flex items-center gap-2">
+                <Loader2 size={14} className="animate-spin" /> Buscando persona…
+              </span>
+            )}
+            {phase === "body_detected" && (
+              <span style={{ ...fontMono, color: C.teal, fontSize: 13, fontWeight: 600 }} className="flex items-center gap-2">
+                <Check size={16} /> Persona detectada
+              </span>
+            )}
+            {phase === "ready_to_start" && (
+              <button onClick={handleStart} className="rounded-full px-6 py-3" style={{ background: C.teal }}>
+                <span style={{ ...fontBody, color: "#04150D", fontSize: 14, fontWeight: 700 }}>INICIAR</span>
+              </button>
+            )}
+            {(phase === "get_ready" || phase === "switch_side") && (
+              <div className="flex flex-col items-center gap-2 w-full">
+                <span style={{ ...fontBody, color: "#fff", fontSize: 13.5, fontWeight: 600 }} className="text-center">
+                  Ponte en apoyo unipodal sobre la {currentSideLabel}, con la otra rodilla flexionada
+                </span>
+                <button onClick={confirmReady} className="rounded-full px-6 py-3" style={{ background: C.teal }}>
+                  <span style={{ ...fontBody, color: "#04150D", fontSize: 14, fontWeight: 700 }}>Continuar</span>
+                </button>
+              </div>
+            )}
+            {phase === "recording" && !jumpProgress.invalid && (
+              <div className="flex flex-col items-center gap-1.5">
+                <span style={{ ...fontMono, color: "#fff", fontSize: 12, fontWeight: 600 }} className="uppercase tracking-wide">
+                  {currentSideLabel} · {CMJ_STAGE_LABELS[jumpProgress.stage] || jumpProgress.stage}
+                </span>
+                <span style={{ ...fontMono, color: C.teal, fontSize: 28, fontWeight: 600 }}>{elapsed.toFixed(1)}s</span>
+              </div>
+            )}
+            {phase === "recording" && jumpProgress.invalid && (
+              <div className="flex flex-col items-center gap-2 w-full">
+                <span style={{ ...fontMono, color: "#fff", fontSize: 12, fontWeight: 600 }} className="flex items-center gap-1.5">
+                  <AlertCircle size={14} color={C.coral} /> Salto no válido
+                </span>
+                <span style={{ ...fontBody, color: "#fff", fontSize: 12.5 }} className="text-center">{jumpProgress.reason}</span>
+                <button onClick={retryCurrentJump} className="rounded-full px-5 py-2.5" style={{ background: C.teal }}>
+                  <span style={{ ...fontBody, color: "#04150D", fontSize: 13, fontWeight: 700 }}>Reintentar</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {phase === "recording" && completedSides.length > 0 && (
+        <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+          <div style={{ ...fontDisplay, color: C.text, fontSize: 13.5, fontWeight: 600 }} className="mb-2">Piernas registradas</div>
+          <div className="flex items-center gap-1.5">
+            {SLJ_SIDES.map((side, i) => (
+              <div key={side} className="flex-1 rounded-full" style={{ height: 6, background: i < completedSides.length ? C.teal : C.line }} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showCamera && phase !== "recording" && phase !== "get_ready" && phase !== "switch_side" && (
+        <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
+          <div style={{ ...fontDisplay, color: C.text, fontSize: 13.5, fontWeight: 600 }} className="mb-2">Calidad de captura</div>
+          <CaptureQualityIndicator status={bodyStatus} />
+        </div>
+      )}
+
+      {phase === "error" && (
+        <div className="rounded-2xl p-5 space-y-3" style={{ background: C.coralSoft }}>
+          <div className="flex items-center gap-2">
+            <AlertCircle size={18} color={C.coral} />
+            <span style={{ ...fontBody, color: C.coral, fontSize: 13.5 }}>{errorMessage || "No se pudo completar la captura real."}</span>
+          </div>
+          <button onClick={applyDemoResult} className="w-full rounded-xl py-3" style={{ background: C.ink }}>
+            <span style={{ ...fontBody, color: "#fff", fontSize: 14, fontWeight: 600 }}>Usar demostración</span>
+          </button>
+        </div>
+      )}
+
+      {phase === "completed" && result && (
+        <SingleLegJumpResult assessment={result} onSave={handleSave} saved={saved} onContinue={onContinue} />
       )}
     </div>
   );
