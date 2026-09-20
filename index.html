@@ -76,8 +76,8 @@ const C = {
   // en la práctica se traduce en un contraste insuficiente (~3–4:1) —
   // corregido aquí a ~9:1 / ~5:1 respectivamente.
   text: "#F4FBF8",
-  inkSoft: "#B9D3C8",
-  inkFaint: "#87A398",
+  inkSoft: "#D6EBE1",
+  inkFaint: "#A3C2B5",
 
   // Fondo de la app y superficies de vidrio
   paper: "#07100D",
@@ -91,7 +91,7 @@ const C = {
   // Acento — verde esmeralda (nunca fosforito)
   teal: "#18A66A",
   tealSoft: "rgba(24,166,106,0.16)",
-  tealDeep: "#0E7C4E",
+  tealDeep: "#5EEBA8",
 
   // Estados
   amber: "#D6A24A",
@@ -295,7 +295,7 @@ function TopBar({ title, subtitle, onBack }) {
   return (
     <div className="flex items-center gap-3 px-5 md:px-8 pt-6 pb-4">
       {onBack && (
-        <button onClick={onBack} className="rounded-full p-1.5" style={{ background: C.paper }}>
+        <button onClick={onBack} className="rounded-full p-1.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
           <ChevronLeft size={18} color={C.inkSoft} />
         </button>
       )}
@@ -616,7 +616,7 @@ function SimpleCameraCapture({ test, onDone }) {
             </button>
           )}
           {(state === "preparing" || state === "capturing" || state === "processing") && (
-            <button disabled className="flex-1 flex items-center justify-center gap-2 rounded-xl py-3" style={{ background: C.paper }}>
+            <button disabled className="flex-1 flex items-center justify-center gap-2 rounded-xl py-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
               <span style={{ ...fontBody, color: C.inkFaint, fontSize: 14, fontWeight: 600 }}>Registrando…</span>
             </button>
           )}
@@ -2541,7 +2541,7 @@ function CaptureGuide({ view, index, total, onAccept, mode = "photo", reps = 5, 
             </button>
           )}
           {(state === "countdown" || state === "capturing") && (
-            <button disabled className="flex-1 rounded-xl py-3" style={{ background: C.paper }}>
+            <button disabled className="flex-1 rounded-xl py-3" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
               <span style={{ ...fontBody, color: C.inkFaint, fontSize: 14, fontWeight: 600 }}>
                 {isTimed ? "En equilibrio…" : isVideo ? "Grabando…" : "Preparando…"}
               </span>
@@ -3919,7 +3919,7 @@ function CameraAssessment({ test, ResultsComponent, onSave, onContinue, onAbort 
     <div className="space-y-4">
       {phase !== "completed" && (
         <div className="flex items-center justify-between">
-          <button onClick={backOnePhase} className="flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ background: C.paper }}>
+          <button onClick={backOnePhase} className="flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
             <ChevronLeft size={15} color={C.inkSoft} />
             <span style={{ ...fontBody, color: C.inkSoft, fontSize: 12.5 }}>Atrás</span>
           </button>
@@ -6904,11 +6904,11 @@ function RealSitToStandFlow({ onSave, onContinue, onAbort }) {
     <div className="space-y-4">
       {phase !== "completed" && (
         <div className="flex items-center justify-between">
-          <button onClick={onAbort} className="flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ background: C.paper }}>
+          <button onClick={onAbort} className="flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
             <ChevronLeft size={15} color={C.inkSoft} />
             <span style={{ ...fontBody, color: C.inkSoft, fontSize: 12.5 }}>Abandonar</span>
           </button>
-          <button onClick={() => setUseDemoFallback(true)} className="rounded-full px-3 py-1.5" style={{ background: C.paper }}>
+          <button onClick={() => setUseDemoFallback(true)} className="rounded-full px-3 py-1.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
             <span style={{ ...fontBody, color: C.inkSoft, fontSize: 12.5, fontWeight: 600 }}>Usar demostración</span>
           </button>
         </div>
@@ -7525,11 +7525,11 @@ function RealCmjFlow({ onSave, onContinue, onAbort }) {
     <div className="space-y-4">
       {phase !== "completed" && (
         <div className="flex items-center justify-between">
-          <button onClick={onAbort} className="flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ background: C.paper }}>
+          <button onClick={onAbort} className="flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
             <ChevronLeft size={15} color={C.inkSoft} />
             <span style={{ ...fontBody, color: C.inkSoft, fontSize: 12.5 }}>Abandonar</span>
           </button>
-          <button onClick={applyDemoResult} className="rounded-full px-3 py-1.5" style={{ background: C.paper }}>
+          <button onClick={applyDemoResult} className="rounded-full px-3 py-1.5" style={{ background: C.surface, border: `1px solid ${C.line}` }}>
             <span style={{ ...fontBody, color: C.inkSoft, fontSize: 12.5, fontWeight: 600 }}>Usar demostración</span>
           </button>
         </div>
